@@ -1,0 +1,40 @@
+diff --git a/src/jinja2/filters.py b/src/jinja2/filters.py
+index 4c949cb..9114a0a 100644
+--- a/src/jinja2/filters.py
++++ b/src/jinja2/filters.py
+@@ -438,7 +438,7 @@ def do_sort(
+ 
+ 
+ @pass_environment
+-def do_unique(
++def sync_do_unique(
+     environment: "Environment",
+     value: "t.Iterable[V]",
+     case_sensitive: bool = False,
+@@ -470,6 +470,26 @@ def do_unique(
+             yield item
+ 
+ 
++@async_variant(sync_do_unique)  # type: ignore
++async def do_unique(
++    environment: "Environment",
++    value: "t.Union[t.AsyncIterable[V], t.Iterable[V]]",
++    case_sensitive: bool = False,
++    attribute: t.Optional[t.Union[str, int]] = None,
++) -> "t.AsyncIterator[V]":
++    getter = make_attrgetter(
++        environment, attribute, postprocess=ignore_case if not case_sensitive else None
++    )
++    seen = set()
++
++    async for item in auto_aiter(value):
++        key = getter(item)
++
++        if key not in seen:
++            seen.add(key)
++            yield item
++
++
+ def _min_or_max(
+     environment: "Environment",
+     value: "t.Iterable[V]",

@@ -1,0 +1,195 @@
+diff --git a/src/jinja2/async_utils.py b/src/jinja2/async_utils.py
+index e65219e..55f3e68 100644
+--- a/src/jinja2/async_utils.py
++++ b/src/jinja2/async_utils.py
+@@ -67,15 +67,39 @@ async def auto_await(value: t.Union[t.Awaitable["V"], "V"]) -> "V":
+     return t.cast("V", value)
+ 
+ 
+-async def auto_aiter(
++class _IteratorToAsyncIterator(t.Generic[V]):
++    """Adapt a sync iterable to the async iterator protocol without
++    using an async generator function. A real async generator would be
++    tracked by the interpreter's async generator finalization hooks,
++    which warn (and, under some async libraries such as trio, raise)
++    if it's garbage collected before being exhausted or explicitly
++    closed. Since callers may reasonably abandon iteration part way
++    through (e.g. the ``first`` filter, or a ``break`` in a loop), this
++    plain object avoids that tracking entirely.
++    """
++
++    __slots__ = ("_iterator",)
++
++    def __init__(self, iterable: "t.Iterable[V]") -> None:
++        self._iterator = iter(iterable)
++
++    def __aiter__(self) -> "t.AsyncIterator[V]":
++        return self
++
++    async def __anext__(self) -> V:
++        try:
++            return next(self._iterator)
++        except StopIteration as e:
++            raise StopAsyncIteration from e
++
++
++def auto_aiter(
+     iterable: "t.Union[t.AsyncIterable[V], t.Iterable[V]]",
+ ) -> "t.AsyncIterator[V]":
+     if hasattr(iterable, "__aiter__"):
+-        async for item in t.cast("t.AsyncIterable[V]", iterable):
+-            yield item
+-    else:
+-        for item in iterable:
+-            yield item
++        return t.cast("t.AsyncIterable[V]", iterable).__aiter__()
++
++    return _IteratorToAsyncIterator(iterable)
+ 
+ 
+ async def auto_to_list(
+diff --git a/src/jinja2/compiler.py b/src/jinja2/compiler.py
+index 2740717..ad9c54f 100644
+--- a/src/jinja2/compiler.py
++++ b/src/jinja2/compiler.py
+@@ -902,12 +902,21 @@ class CodeGenerator(NodeVisitor):
+             if not self.environment.is_async:
+                 self.writeline("yield from parent_template.root_render_func(context)")
+             else:
++                parent_gen = self.temporary_identifier()
+                 self.writeline(
+-                    "async for event in parent_template.root_render_func(context):"
++                    f"{parent_gen} = parent_template.root_render_func(context)"
+                 )
++                self.writeline("try:")
++                self.indent()
++                self.writeline(f"async for event in {parent_gen}:")
+                 self.indent()
+                 self.writeline("yield event")
+                 self.outdent()
++                self.outdent()
++                self.writeline("finally:")
++                self.indent()
++                self.writeline(f"await {parent_gen}.aclose()")
++                self.outdent()
+             self.outdent(1 + (not self.has_known_extends))
+ 
+         # at this point we now have the blocks collected and can visit them too.
+@@ -976,10 +985,25 @@ class CodeGenerator(NodeVisitor):
+             self.writeline(
+                 f"yield from context.blocks[{node.name!r}][0]({context})", node
+             )
++        elif self.environment.is_async:
++            block_gen = self.temporary_identifier()
++            self.writeline(
++                f"{block_gen} = context.blocks[{node.name!r}][0]({context})", node
++            )
++            self.writeline("try:")
++            self.indent()
++            self.writeline(f"async for event in {block_gen}:")
++            self.indent()
++            self.simple_write("event", frame)
++            self.outdent()
++            self.outdent()
++            self.writeline("finally:")
++            self.indent()
++            self.writeline(f"await {block_gen}.aclose()")
++            self.outdent()
+         else:
+             self.writeline(
+-                f"{self.choose_async()}for event in"
+-                f" context.blocks[{node.name!r}][0]({context}):",
++                f"for event in context.blocks[{node.name!r}][0]({context}):",
+                 node,
+             )
+             self.indent()
+@@ -1058,12 +1082,24 @@ class CodeGenerator(NodeVisitor):
+             self.indent()
+ 
+         skip_event_yield = False
++        include_gen = None
+         if node.with_context:
+-            self.writeline(
+-                f"{self.choose_async()}for event in template.root_render_func("
++            new_context = (
+                 "template.new_context(context.get_all(), True,"
+-                f" {self.dump_local_context(frame)})):"
++                f" {self.dump_local_context(frame)})"
+             )
++            if self.environment.is_async:
++                include_gen = self.temporary_identifier()
++                self.writeline(
++                    f"{include_gen} = template.root_render_func({new_context})"
++                )
++                self.writeline("try:")
++                self.indent()
++                self.writeline(f"async for event in {include_gen}:")
++            else:
++                self.writeline(
++                    f"for event in template.root_render_func({new_context}):"
++                )
+         elif self.environment.is_async:
+             self.writeline(
+                 "for event in (await template._get_default_module_async())"
+@@ -1078,6 +1114,13 @@ class CodeGenerator(NodeVisitor):
+             self.simple_write("event", frame)
+             self.outdent()
+ 
++        if include_gen is not None:
++            self.outdent()
++            self.writeline("finally:")
++            self.indent()
++            self.writeline(f"await {include_gen}.aclose()")
++            self.outdent()
++
+         if node.ignore_missing:
+             self.outdent()
+ 
+diff --git a/src/jinja2/environment.py b/src/jinja2/environment.py
+index ed41986..0b905ce 100644
+--- a/src/jinja2/environment.py
++++ b/src/jinja2/environment.py
+@@ -1248,7 +1248,7 @@ class Template:
+         namespace: t.MutableMapping[str, t.Any],
+         globals: t.MutableMapping[str, t.Any],
+     ) -> "Template":
+-        t: "Template" = object.__new__(cls)
++        t: Template = object.__new__(cls)
+         t.environment = environment
+         t.globals = globals
+         t.name = namespace["name"]
+@@ -1306,13 +1306,14 @@ class Template:
+             )
+ 
+         ctx = self.new_context(dict(*args, **kwargs))
++        agen: t.AsyncGenerator[str, None] = self.root_render_func(ctx)  # type: ignore
+ 
+         try:
+-            return self.environment.concat(  # type: ignore
+-                [n async for n in self.root_render_func(ctx)]  # type: ignore
+-            )
++            return self.environment.concat([n async for n in agen])
+         except Exception:
+             return self.environment.handle_exception()
++        finally:
++            await agen.aclose()
+ 
+     def stream(self, *args: t.Any, **kwargs: t.Any) -> "TemplateStream":
+         """Works exactly like :meth:`generate` but returns a
+@@ -1356,12 +1357,15 @@ class Template:
+             )
+ 
+         ctx = self.new_context(dict(*args, **kwargs))
++        agen: t.AsyncGenerator[str, None] = self.root_render_func(ctx)  # type: ignore
+ 
+         try:
+-            async for event in self.root_render_func(ctx):  # type: ignore
++            async for event in agen:
+                 yield event
+         except Exception:
+             yield self.environment.handle_exception()
++        finally:
++            await agen.aclose()
+ 
+     def new_context(
+         self,

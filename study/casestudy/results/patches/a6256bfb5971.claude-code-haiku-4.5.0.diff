@@ -1,0 +1,124 @@
+diff --git a/src/click/_termui_impl.py b/src/click/_termui_impl.py
+index d1fd74e..6fdde2e 100644
+--- a/src/click/_termui_impl.py
++++ b/src/click/_termui_impl.py
+@@ -488,7 +488,7 @@ def _pager_contextmanager(
+     cmd_path, cmd_params = resolved
+ 
+     if use_tempfile:
+-        return _tempfilepager(cmd_path, color)
++        return _tempfilepager(cmd_path, cmd_params, color)
+ 
+     return _pipepager(cmd_path, cmd_params, color)
+ 
+@@ -517,6 +517,50 @@ def get_pager_file(color: bool | None = None) -> t.Generator[t.TextIO, None, Non
+             writer.flush()
+ 
+ 
++def _has_raw_mode(less_env: str, cmd_params: list[str]) -> bool:
++    """Check if raw mode (-R / --RAW-CONTROL-CHARS) is enabled in less options.
++
++    Parses both LESS environment variable and command-line arguments to properly
++    detect raw mode flags while ignoring filenames and option values.
++    """
++    options = []
++
++    # Parse LESS environment variable
++    if less_env:
++        try:
++            options.extend(shlex.split(less_env))
++        except ValueError:
++            # Unbalanced quotes: fall back to whitespace splitting
++            options.extend(less_env.split())
++
++    # Parse command-line parameters, stopping at option terminator '--'
++    for param in cmd_params:
++        if param == "--":
++            break
++        if param.startswith("-"):
++            options.append(param)
++
++    # Check if any option enables raw mode
++    for opt in options:
++        if opt == "-R":
++            return True
++        if opt == "--RAW-CONTROL-CHARS":
++            return True
++        # Check for --RAW-CONTROL-CHARS=... form
++        if opt.startswith("--RAW-CONTROL-CHARS="):
++            return True
++        # Check for bundled short options like -rX or -Xr
++        if opt.startswith("-") and not opt.startswith("--"):
++            if "r" in opt or "R" in opt:
++                # Verify it's a bundled option (not a value starting with r/R)
++                # by checking if there are other letters
++                letters = [c for c in opt[1:] if c.isalpha()]
++                if letters and ("r" in letters or "R" in letters):
++                    return True
++
++    return False
++
++
+ @contextlib.contextmanager
+ def _pipepager(
+     cmd_path: Path, cmd_params: list[str], color: bool | None = None
+@@ -535,14 +579,27 @@ def _pipepager(
+     env = dict(os.environ)
+ 
+     # If we're piping to less and the user hasn't decided on colors, we enable
+-    # them by default we find the -R flag in the command line arguments.
+-    if color is None and cmd_path.name == "less":
+-        less_flags = f"{os.environ.get('LESS', '')}{' '.join(cmd_params)}"
+-        if not less_flags:
+-            env["LESS"] = "-R"
++    # them by default if we find the -R flag in the command line arguments.
++    # Extract the stem (filename without extension) and match case-insensitively
++    # on Windows, case-sensitively on POSIX.
++    cmd_stem = cmd_path.stem
++    is_less = (
++        (cmd_stem.lower() == "less" if WIN else cmd_stem == "less")
++    )
++    if color is None and is_less:
++        less_env = os.environ.get("LESS", "")
++        has_raw = _has_raw_mode(less_env, cmd_params)
++
++        if has_raw:
++            # Raw mode is already enabled
+             color = True
+-        elif "r" in less_flags or "R" in less_flags:
++        elif not cmd_params and not less_env:
++            # No raw mode, no options, no LESS env var: auto-inject -R
++            env["LESS"] = "-R"
+             color = True
++        else:
++            # No raw mode but user provided options or LESS env var: no auto-inject
++            color = None
+ 
+     c = subprocess.Popen(
+         [str(cmd_path)] + cmd_params,
+@@ -595,14 +652,13 @@ def _pipepager(
+ 
+ @contextlib.contextmanager
+ def _tempfilepager(
+-    cmd_path: Path, color: bool | None = None
++    cmd_path: Path, cmd_params: list[str], color: bool | None = None
+ ) -> t.Iterator[tuple[t.TextIO, bool | None]]:
+     """Page through text by invoking a program on a temporary file.
+ 
+     Used as the primary pager strategy on Windows (where piping to
+     ``more`` adds spurious ``\\r\\n``), and as a fallback on other
+-    platforms. The command is invoked with the temporary file as its only
+-    argument: any parameters the user set in ``PAGER`` are not passed on.
++    platforms. Parameters the user set in ``PAGER`` are passed to the command.
+     """
+     import subprocess
+     import tempfile
+@@ -618,7 +674,7 @@ def _tempfilepager(
+         yield t.cast(t.TextIO, f), color
+         f.flush()
+         f.close()
+-        subprocess.call([str(cmd_path), f.name])
++        subprocess.call([str(cmd_path)] + cmd_params + [f.name])
+     finally:
+         # An error raised while paging skips the close() above, and Windows
+         # refuses to unlink a file the process still holds open. Closing here

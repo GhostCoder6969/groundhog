@@ -1,0 +1,36 @@
+diff --git a/httpx/_urlparse.py b/httpx/_urlparse.py
+index 215c536..67816ca 100644
+--- a/httpx/_urlparse.py
++++ b/httpx/_urlparse.py
+@@ -159,8 +159,12 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
+ 
+     # If a URL includes any ASCII control characters including \t, \r, \n,
+     # then treat it as invalid.
+-    if any(char.isascii() and not char.isprintable() for char in url):
+-        raise InvalidURL("Invalid non-printable ASCII character in URL")
++    for idx, char in enumerate(url):
++        if char.isascii() and not char.isprintable():
++            raise InvalidURL(
++                f"Invalid non-printable ASCII character in URL, "
++                f"{char!r} at position {idx}."
++            )
+ 
+     # Some keyword arguments require special handling.
+     # ------------------------------------------------
+@@ -204,10 +208,12 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
+ 
+             # If a component includes any ASCII control characters including \t, \r, \n,
+             # then treat it as invalid.
+-            if any(char.isascii() and not char.isprintable() for char in value):
+-                raise InvalidURL(
+-                    f"Invalid non-printable ASCII character in URL component '{key}'"
+-                )
++            for idx, char in enumerate(value):
++                if char.isascii() and not char.isprintable():
++                    raise InvalidURL(
++                        f"Invalid non-printable ASCII character in URL {key} "
++                        f"component, {char!r} at position {idx}."
++                    )
+ 
+             # Ensure that keyword arguments match as a valid regex.
+             if not COMPONENT_REGEX[key].fullmatch(value):

@@ -1,0 +1,26 @@
+diff --git a/src/marshmallow/validate.py b/src/marshmallow/validate.py
+index 98e181a..cd722f5 100644
+--- a/src/marshmallow/validate.py
++++ b/src/marshmallow/validate.py
+@@ -182,6 +182,10 @@ class URL(Validator):
+ 
+     _regex = RegexMemoizer()
+ 
++    # file URLs have an authority that is either empty or "localhost", followed
++    # by an absolute path, e.g. "file:///tmp/foo" or "file://localhost/tmp/foo".
++    _file_regex = re.compile(r"^file://(?:localhost)?/\S*$", re.IGNORECASE)
++
+     default_message = "Not a valid URL."
+     default_schemes = {"http", "https", "ftp", "ftps"}
+ 
+@@ -220,6 +224,10 @@ class URL(Validator):
+             scheme = value.split("://")[0].lower()
+             if scheme not in self.schemes:
+                 raise ValidationError(message)
++            if scheme == "file":
++                if not self._file_regex.match(value):
++                    raise ValidationError(message)
++                return value
+ 
+         regex = self._regex(
+             relative=self.relative, absolute=self.absolute, require_tld=self.require_tld

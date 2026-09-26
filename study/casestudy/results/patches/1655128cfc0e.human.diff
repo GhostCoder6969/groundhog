@@ -1,0 +1,172 @@
+commit 1655128cfc0e8b598d5b3f361a3983f82098276b
+Author: Thomas Grainger <tagrain@gmail.com>
+Date:   Sat May 11 23:01:12 2024 +0100
+
+    test on trio, fix all missing aclose related warnings (#1960)
+
+diff --git a/src/jinja2/async_utils.py b/src/jinja2/async_utils.py
+index e65219e4..b0d277de 100644
+--- a/src/jinja2/async_utils.py
++++ b/src/jinja2/async_utils.py
+@@ -6,6 +6,9 @@ from functools import wraps
+ from .utils import _PassArg
+ from .utils import pass_eval_context
+ 
++if t.TYPE_CHECKING:
++    import typing_extensions as te
++
+ V = t.TypeVar("V")
+ 
+ 
+@@ -67,15 +70,27 @@ async def auto_await(value: t.Union[t.Awaitable["V"], "V"]) -> "V":
+     return t.cast("V", value)
+ 
+ 
+-async def auto_aiter(
++class _IteratorToAsyncIterator(t.Generic[V]):
++    def __init__(self, iterator: "t.Iterator[V]"):
++        self._iterator = iterator
++
++    def __aiter__(self) -> "te.Self":
++        return self
++
++    async def __anext__(self) -> V:
++        try:
++            return next(self._iterator)
++        except StopIteration as e:
++            raise StopAsyncIteration(e.value) from e
++
++
++def auto_aiter(
+     iterable: "t.Union[t.AsyncIterable[V], t.Iterable[V]]",
+ ) -> "t.AsyncIterator[V]":
+     if hasattr(iterable, "__aiter__"):
+-        async for item in t.cast("t.AsyncIterable[V]", iterable):
+-            yield item
++        return iterable.__aiter__()
+     else:
+-        for item in iterable:
+-            yield item
++        return _IteratorToAsyncIterator(iter(iterable))
+ 
+ 
+ async def auto_to_list(
+diff --git a/src/jinja2/compiler.py b/src/jinja2/compiler.py
+index 27407175..e18a1400 100644
+--- a/src/jinja2/compiler.py
++++ b/src/jinja2/compiler.py
+@@ -902,12 +902,15 @@ class CodeGenerator(NodeVisitor):
+             if not self.environment.is_async:
+                 self.writeline("yield from parent_template.root_render_func(context)")
+             else:
+-                self.writeline(
+-                    "async for event in parent_template.root_render_func(context):"
+-                )
++                self.writeline("agen = parent_template.root_render_func(context)")
++                self.writeline("try:")
++                self.indent()
++                self.writeline("async for event in agen:")
+                 self.indent()
+                 self.writeline("yield event")
+                 self.outdent()
++                self.outdent()
++                self.writeline("finally: await agen.aclose()")
+             self.outdent(1 + (not self.has_known_extends))
+ 
+         # at this point we now have the blocks collected and can visit them too.
+@@ -977,14 +980,20 @@ class CodeGenerator(NodeVisitor):
+                 f"yield from context.blocks[{node.name!r}][0]({context})", node
+             )
+         else:
++            self.writeline(f"gen = context.blocks[{node.name!r}][0]({context})")
++            self.writeline("try:")
++            self.indent()
+             self.writeline(
+-                f"{self.choose_async()}for event in"
+-                f" context.blocks[{node.name!r}][0]({context}):",
++                f"{self.choose_async()}for event in gen:",
+                 node,
+             )
+             self.indent()
+             self.simple_write("event", frame)
+             self.outdent()
++            self.outdent()
++            self.writeline(
++                f"finally: {self.choose_async('await gen.aclose()', 'gen.close()')}"
++            )
+ 
+         self.outdent(level)
+ 
+@@ -1057,26 +1066,33 @@ class CodeGenerator(NodeVisitor):
+             self.writeline("else:")
+             self.indent()
+ 
+-        skip_event_yield = False
++        def loop_body() -> None:
++            self.indent()
++            self.simple_write("event", frame)
++            self.outdent()
++
+         if node.with_context:
+             self.writeline(
+-                f"{self.choose_async()}for event in template.root_render_func("
++                f"gen = template.root_render_func("
+                 "template.new_context(context.get_all(), True,"
+-                f" {self.dump_local_context(frame)})):"
++                f" {self.dump_local_context(frame)}))"
++            )
++            self.writeline("try:")
++            self.indent()
++            self.writeline(f"{self.choose_async()}for event in gen:")
++            loop_body()
++            self.outdent()
++            self.writeline(
++                f"finally: {self.choose_async('await gen.aclose()', 'gen.close()')}"
+             )
+         elif self.environment.is_async:
+             self.writeline(
+                 "for event in (await template._get_default_module_async())"
+                 "._body_stream:"
+             )
++            loop_body()
+         else:
+             self.writeline("yield from template._get_default_module()._body_stream")
+-            skip_event_yield = True
+-
+-        if not skip_event_yield:
+-            self.indent()
+-            self.simple_write("event", frame)
+-            self.outdent()
+ 
+         if node.ignore_missing:
+             self.outdent()
+diff --git a/src/jinja2/environment.py b/src/jinja2/environment.py
+index ed419860..57a7f896 100644
+--- a/src/jinja2/environment.py
++++ b/src/jinja2/environment.py
+@@ -1346,7 +1346,7 @@ class Template:
+ 
+     async def generate_async(
+         self, *args: t.Any, **kwargs: t.Any
+-    ) -> t.AsyncIterator[str]:
++    ) -> t.AsyncGenerator[str, object]:
+         """An async version of :meth:`generate`.  Works very similarly but
+         returns an async iterator instead.
+         """
+@@ -1358,8 +1358,14 @@ class Template:
+         ctx = self.new_context(dict(*args, **kwargs))
+ 
+         try:
+-            async for event in self.root_render_func(ctx):  # type: ignore
+-                yield event
++            agen = self.root_render_func(ctx)
++            try:
++                async for event in agen:  # type: ignore
++                    yield event
++            finally:
++                # we can't use async with aclosing(...) because that's only
++                # in 3.10+
++                await agen.aclose()  # type: ignore
+         except Exception:
+             yield self.environment.handle_exception()
+ 

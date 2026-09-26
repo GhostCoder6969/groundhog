@@ -1,0 +1,18 @@
+diff --git a/src/attr/_make.py b/src/attr/_make.py
+index 9081236..e0886a1 100644
+--- a/src/attr/_make.py
++++ b/src/attr/_make.py
+@@ -1914,8 +1914,11 @@ def fields(cls):
+     generic_base = get_generic_base(cls)
+ 
+     if generic_base is None and not isinstance(cls, type):
+-        msg = "Passed object must be a class."
+-        raise TypeError(msg)
++        if hasattr(type(cls), "__attrs_attrs__"):
++            cls = type(cls)
++        else:
++            msg = "Passed object must be a class or attrs instance."
++            raise TypeError(msg)
+ 
+     attrs = getattr(cls, "__attrs_attrs__", None)
+ 

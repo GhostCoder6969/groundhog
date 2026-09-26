@@ -1,0 +1,85 @@
+commit 0f758fe54a8742110f730ebbaf146e79f3937c8d
+Author: Cristian Le <github@lecris.me>
+Date:   Thu Apr 16 22:20:58 2026 +0200
+
+    Expose converter as a decorator (#1541)
+    
+    * Expose converter as a decorator
+    
+    * Update docs/init.md
+    
+    * Update docs/init.md
+    
+    * Update src/attr/_make.py
+    
+    * Update src/attr/_make.py
+    
+    * Update src/attr/_make.py
+    
+    * Add missing import
+    
+    ---------
+    
+    Co-authored-by: Hynek Schlawack <hs@ox.cx>
+
+diff --git a/src/attr/_make.py b/src/attr/_make.py
+index 4b32d6a..793bfd8 100644
+--- a/src/attr/_make.py
++++ b/src/attr/_make.py
+@@ -2581,7 +2581,7 @@ class Attribute:
+             False,
+             ca.metadata,
+             type,
+-            ca.converter,
++            ca._converter,
+             kw_only if ca.kw_only is None else ca.kw_only,
+             ca.eq,
+             ca.eq_key,
+@@ -2703,10 +2703,10 @@ class _CountingAttr:
+     """
+ 
+     __slots__ = (
++        "_converter",
+         "_default",
+         "_validator",
+         "alias",
+-        "converter",
+         "counter",
+         "eq",
+         "eq_key",
+@@ -2794,7 +2794,7 @@ class _CountingAttr:
+         self.counter = _CountingAttr.cls_counter
+         self._default = default
+         self._validator = validator
+-        self.converter = converter
++        self._converter = converter
+         self.repr = repr
+         self.eq = eq
+         self.eq_key = eq_key
+@@ -2840,6 +2840,26 @@ class _CountingAttr:
+ 
+         return meth
+ 
++    def converter(self, meth):
++        """
++        Decorator that appends *meth* to the list of converters.
++
++        Returns *meth* unchanged.
++
++        .. versionadded:: 26.2.0
++        """
++        decorated_converter = Converter(
++            lambda value, _self, field: meth(_self, field, value),
++            takes_self=True,
++            takes_field=True,
++        )
++        if self._converter is None:
++            self._converter = decorated_converter
++        else:
++            self._converter = pipe(self._converter, decorated_converter)
++
++        return meth
++
+ 
+ _CountingAttr = _add_eq(_add_repr(_CountingAttr))
+ 

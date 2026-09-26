@@ -1,0 +1,57 @@
+commit 070dde08bad456e743a0d2e1842c142a799a9568
+Author: Fridayworks <aifriday700@gmail.com>
+Date:   Wed Mar 25 18:09:46 2026 -0400
+
+    Fix Constant field with required=True raising ValueError (#2901)
+    
+    * Fix Constant field with required=True raising ValueError
+    
+    Constant.__init__ now sets load_default and dump_default after
+    super().__init__() to avoid the required/load_default conflict
+    check. Also overrides _validate_missing to skip the required
+    check since a Constant always provides a value.
+    
+    The allow_none fix from #2894 is preserved by explicitly setting
+    self.allow_none = True when the constant is None and allow_none
+    was not provided.
+    
+    Fixes #2900.
+    
+    Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+    
+    * add comment
+    
+    * update changelog and authors
+    
+    ---------
+    
+    Co-authored-by: Claude Opus 4.6 <noreply@anthropic.com>
+    Co-authored-by: Steven Loria <git@stevenloria.com>
+
+diff --git a/src/marshmallow/fields.py b/src/marshmallow/fields.py
+index b081b4ba..1c2e72e0 100644
+--- a/src/marshmallow/fields.py
++++ b/src/marshmallow/fields.py
+@@ -2074,10 +2074,20 @@ class Constant(Field[_ContantT]):
+     _CHECK_ATTRIBUTE = False
+ 
+     def __init__(self, constant: _ContantT, **kwargs: Unpack[_BaseFieldKwargs]):
+-        kwargs["load_default"] = constant
+-        kwargs["dump_default"] = constant
+         super().__init__(**kwargs)
+         self.constant = constant
++        self.load_default = constant
++        self.dump_default = constant
++        # If allow_none was not explicitly provided and the constant is None,
++        # None should be considered valid (mirrors Field.__init__ logic).
++        if kwargs.get("allow_none") is None and constant is None:
++            self.allow_none = True
++
++    def _validate_missing(self, value):
++        # Omit check for value is missing_
++        # Below is just a paranoid check
++        if value is None and not self.allow_none:
++            raise self.make_error("null")
+ 
+     def _serialize(self, value, *args, **kwargs) -> _ContantT:
+         return self.constant

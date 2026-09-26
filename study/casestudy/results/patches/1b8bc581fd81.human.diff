@@ -1,0 +1,21 @@
+commit 1b8bc581fd81374b2a989bed95e9bb329a6ee55f
+Author: David Lord <davidism@gmail.com>
+Date:   Wed Aug 19 20:55:32 2026 -0700
+
+    validate base64
+
+diff --git a/src/werkzeug/datastructures/auth.py b/src/werkzeug/datastructures/auth.py
+index 0a3141e5..e50dd31c 100644
+--- a/src/werkzeug/datastructures/auth.py
++++ b/src/werkzeug/datastructures/auth.py
+@@ -104,7 +104,9 @@ class Authorization:
+ 
+         if scheme == "basic":
+             try:
+-                username, _, password = base64.b64decode(rest).decode().partition(":")
++                username, _, password = (
++                    base64.b64decode(rest, validate=True).decode().partition(":")
++                )
+             except (binascii.Error, UnicodeError):
+                 return None
+ 

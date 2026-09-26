@@ -1,0 +1,14 @@
+diff --git a/src/attr/_version_info.py b/src/attr/_version_info.py
+index 51a1312..18a4f9a 100644
+--- a/src/attr/_version_info.py
++++ b/src/attr/_version_info.py
+@@ -75,6 +75,9 @@ class VersionInfo:
+ 
+         return us == them
+ 
++    def __hash__(self):
++        return hash(astuple(self))
++
+     def __lt__(self, other):
+         try:
+             us, them = self._ensure_tuple(other)

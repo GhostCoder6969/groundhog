@@ -1,0 +1,55 @@
+diff --git a/httpx/_urlparse.py b/httpx/_urlparse.py
+index 25bf7f9..57ab51f 100644
+--- a/httpx/_urlparse.py
++++ b/httpx/_urlparse.py
+@@ -526,6 +526,28 @@ def quote(string: str, safe: str = "/") -> str:
+     return "".join(parts)
+ 
+ 
++def form_encoded(string: str, safe: str = "") -> str:
++    """
++    Use form encoding (application/x-www-form-urlencoded) to encode a string.
++    Spaces are encoded as '+', unreserved characters and additional safe chars are not encoded.
++    """
++    NON_ESCAPED_CHARS = UNRESERVED_CHARACTERS + ":/?." + safe
++
++    if not string:
++        return string
++
++    result = []
++    for char in string:
++        if char == ' ':
++            result.append('+')
++        elif char in NON_ESCAPED_CHARS:
++            result.append(char)
++        else:
++            result.append(PERCENT(char))
++
++    return ''.join(result)
++
++
+ def urlencode(items: list[tuple[str, str]]) -> str:
+     """
+     We can use a much simpler version of the stdlib urlencode here because
+@@ -533,8 +555,10 @@ def urlencode(items: list[tuple[str, str]]) -> str:
+ 
+     https://github.com/python/cpython/blob/b2f7b2ef0b5421e01efb8c7bee2ef95d3bab77eb/Lib/urllib/parse.py#L926
+ 
+-    Note that we use '%20' encoding for spaces. and '%2F  for '/'.
+-    This is slightly different than `requests`, but is the behaviour that browsers use.
++    This uses form encoding (application/x-www-form-urlencoded):
++    - Spaces are encoded as '+'
++    - Unreserved characters and a few extra characters are not encoded
++    - All other characters are percent-encoded
+ 
+     See
+     - https://github.com/encode/httpx/issues/2536
+@@ -543,7 +567,7 @@ def urlencode(items: list[tuple[str, str]]) -> str:
+     """
+     return "&".join(
+         [
+-            percent_encoded(k, safe="") + "=" + percent_encoded(v, safe="")
++            form_encoded(k, safe="") + "=" + form_encoded(v, safe="")
+             for k, v in items
+         ]
+     )

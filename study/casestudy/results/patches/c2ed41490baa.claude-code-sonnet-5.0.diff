@@ -1,0 +1,42 @@
+diff --git a/CHANGES.md b/CHANGES.md
+index f61cf1c..1f180b1 100644
+--- a/CHANGES.md
++++ b/CHANGES.md
+@@ -43,6 +43,10 @@ Unreleased
+   `DeprecationWarning` until Click 9.0: `LazyFile`, `KeepOpenFile`,
+   `make_default_short_help`, `PacifyFlushWrapper`, and `safecall`.
+   {issue}`3099` {pr}`3695`
++- {meth}`CliRunner.isolated_filesystem` is deprecated and will be removed in
++  Click 9.0. It changes the process-wide current working directory, which is
++  not thread-safe. Use a temporary directory and absolute paths instead.
++  {issue}`3501`
+ 
+ ## Version 8.4.2
+ 
+diff --git a/src/click/testing.py b/src/click/testing.py
+index 19fae4a..805e1af 100644
+--- a/src/click/testing.py
++++ b/src/click/testing.py
+@@ -753,7 +753,22 @@ class CliRunner:
+ 
+         .. versionchanged:: 8.0
+             Added the ``temp_dir`` parameter.
++
++        .. deprecated:: 8.5.0
++            Will be removed in Click 9.0. It changes the process-wide
++            current working directory, which is not thread-safe. Use a
++            temporary directory and absolute paths instead.
+         """
++        import warnings
++
++        warnings.warn(
++            "'isolated_filesystem' is deprecated and will be removed in"
++            " Click 9.0. It changes the process-wide current working"
++            " directory, which is not thread-safe. Use a temporary"
++            " directory and absolute paths instead.",
++            DeprecationWarning,
++            stacklevel=2,
++        )
+         cwd = os.getcwd()
+         dt = tempfile.mkdtemp(dir=temp_dir)
+         os.chdir(dt)

@@ -1,0 +1,27 @@
+diff --git a/src/attr/_make.py b/src/attr/_make.py
+index 9081236..fc5a592 100644
+--- a/src/attr/_make.py
++++ b/src/attr/_make.py
+@@ -1913,9 +1913,9 @@ def fields(cls):
+     """
+     generic_base = get_generic_base(cls)
+ 
+-    if generic_base is None and not isinstance(cls, type):
+-        msg = "Passed object must be a class."
+-        raise TypeError(msg)
++    is_instance = generic_base is None and not isinstance(cls, type)
++    if is_instance:
++        cls = type(cls)
+ 
+     attrs = getattr(cls, "__attrs_attrs__", None)
+ 
+@@ -1928,6 +1928,9 @@ def fields(cls):
+                 # efficient.
+                 cls.__attrs_attrs__ = attrs
+                 return attrs
++        if is_instance:
++            msg = "Passed object must be a class or attrs instance."
++            raise TypeError(msg)
+         msg = f"{cls!r} is not an attrs-decorated class."
+         raise NotAnAttrsClassError(msg)
+ 

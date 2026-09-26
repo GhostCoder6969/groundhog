@@ -1,0 +1,73 @@
+diff --git a/src/click/core.py b/src/click/core.py
+index de129ec..d6a1e98 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -116,6 +116,19 @@ def _format_deprecated_suffix(deprecated: bool | str) -> str:
+     return ""
+ 
+ 
++def _fast_exit(code: int) -> t.NoReturn:
++    """Call ``sys.exit`` until it actually exits.
++
++    A ``KeyboardInterrupt`` arriving while ``sys.exit`` is unwinding must not
++    replace the exit code that was already decided.
++    """
++    while True:
++        try:
++            sys.exit(code)
++        except KeyboardInterrupt:
++            continue
++
++
+ def batch(iterable: cabc.Iterable[V], batch_size: int) -> list[tuple[V, ...]]:
+     return list(zip(*repeat(iter(iterable), batch_size), strict=False))
+ 
+@@ -1561,23 +1574,29 @@ class Command:
+                     # by its truthiness/falsiness
+                     ctx.exit()
+             except (EOFError, KeyboardInterrupt) as e:
+-                echo(file=sys.stderr)
++                try:
++                    echo(file=sys.stderr)
++                except KeyboardInterrupt:
++                    pass
+                 raise Abort() from e
+             except ClickException as e:
+                 if not standalone_mode:
+                     raise
+-                e.show()
+-                sys.exit(e.exit_code)
++                try:
++                    e.show()
++                except KeyboardInterrupt:
++                    pass
++                _fast_exit(e.exit_code)
+             except OSError as e:
+                 if e.errno == errno.EPIPE:
+                     sys.stdout = t.cast(t.TextIO, _PacifyFlushWrapper(sys.stdout))
+                     sys.stderr = t.cast(t.TextIO, _PacifyFlushWrapper(sys.stderr))
+-                    sys.exit(1)
++                    _fast_exit(1)
+                 else:
+                     raise
+         except Exit as e:
+             if standalone_mode:
+-                sys.exit(e.exit_code)
++                _fast_exit(e.exit_code)
+             else:
+                 # in non-standalone mode, return the exit code
+                 # note that this is only reached if `self.invoke` above raises
+@@ -1591,8 +1610,11 @@ class Command:
+         except Abort:
+             if not standalone_mode:
+                 raise
+-            echo(_("Aborted!"), file=sys.stderr)
+-            sys.exit(1)
++            try:
++                echo(_("Aborted!"), file=sys.stderr)
++            except KeyboardInterrupt:
++                pass
++            _fast_exit(1)
+ 
+     def _main_shell_completion(
+         self,

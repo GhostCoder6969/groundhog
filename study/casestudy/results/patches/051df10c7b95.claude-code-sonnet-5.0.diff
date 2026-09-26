@@ -1,0 +1,19 @@
+diff --git a/src/jinja2/parser.py b/src/jinja2/parser.py
+index cefce2d..7a29a8c 100644
+--- a/src/jinja2/parser.py
++++ b/src/jinja2/parser.py
+@@ -312,9 +312,12 @@ class Parser:
+         # by asserting that the body, if not empty, is just TemplateData nodes
+         # with whitespace data
+         if node.required and not all(
+-            isinstance(child, nodes.TemplateData) and child.data.isspace()
++            isinstance(body, nodes.Output)
++            and all(
++                isinstance(child, nodes.TemplateData) and child.data.isspace()
++                for child in body.nodes
++            )
+             for body in node.body
+-            for child in body.nodes  # type: ignore
+         ):
+             self.fail("Required blocks can only contain comments or whitespace")
+ 

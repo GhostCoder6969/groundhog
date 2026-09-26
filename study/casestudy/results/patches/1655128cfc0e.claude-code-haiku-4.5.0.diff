@@ -1,0 +1,45 @@
+diff --git a/src/jinja2/compiler.py b/src/jinja2/compiler.py
+index 2740717..0ab195f 100644
+--- a/src/jinja2/compiler.py
++++ b/src/jinja2/compiler.py
+@@ -1187,10 +1187,20 @@ class CodeGenerator(NodeVisitor):
+             self.writeline(f"{self.func(loop_filter_func)}(fiter):", node.test)
+             self.indent()
+             self.enter_frame(test_frame)
++
++            if self.environment.is_async:
++                iter_var = self.temporary_identifier()
++                self.writeline(f"{iter_var} = auto_aiter(fiter)")
++                self.writeline("try:")
++                self.indent()
++
+             self.writeline(self.choose_async("async for ", "for "))
+             self.visit(node.target, loop_frame)
+             self.write(" in ")
+-            self.write(self.choose_async("auto_aiter(fiter)", "fiter"))
++            if self.environment.is_async:
++                self.write(iter_var)
++            else:
++                self.write("fiter")
+             self.write(":")
+             self.indent()
+             self.writeline("if ", node.test)
+@@ -1199,7 +1209,17 @@ class CodeGenerator(NodeVisitor):
+             self.indent()
+             self.writeline("yield ")
+             self.visit(node.target, loop_frame)
+-            self.outdent(3)
++
++            if self.environment.is_async:
++                self.outdent(3)
++                self.writeline("finally:")
++                self.indent()
++                self.writeline(f"await {iter_var}.aclose()")
++                self.outdent()
++                self.outdent()
++            else:
++                self.outdent(3)
++
+             self.leave_frame(test_frame, with_python_scope=True)
+ 
+         # if we don't have an recursive loop we have to find the shadowed

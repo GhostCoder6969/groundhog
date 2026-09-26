@@ -1,0 +1,14 @@
+diff --git a/src/click/_utils.py b/src/click/_utils.py
+index 05ee2e9..6deba53 100644
+--- a/src/click/_utils.py
++++ b/src/click/_utils.py
+@@ -18,6 +18,9 @@ class Sentinel(enum.Enum):
+     def __repr__(self) -> str:
+         return f"{self.__class__.__name__}.{self.name}"
+ 
++    def __reduce_ex__(self, protocol: int) -> tuple[t.Any, ...]:
++        return (getattr, (self.__class__, self.name))
++
+ 
+ UNSET: t.Literal[Sentinel.UNSET] = Sentinel.UNSET
+ """Sentinel used to indicate that a value is not set."""

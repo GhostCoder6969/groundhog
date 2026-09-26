@@ -1,0 +1,67 @@
+diff --git a/src/attr/_make.py b/src/attr/_make.py
+index 4b32d6a..57b7afe 100644
+--- a/src/attr/_make.py
++++ b/src/attr/_make.py
+@@ -2581,7 +2581,7 @@ class Attribute:
+             False,
+             ca.metadata,
+             type,
+-            ca.converter,
++            ca._converter,
+             kw_only if ca.kw_only is None else ca.kw_only,
+             ca.eq,
+             ca.eq_key,
+@@ -2703,10 +2703,10 @@ class _CountingAttr:
+     """
+ 
+     __slots__ = (
++        "_converter",
+         "_default",
+         "_validator",
+         "alias",
+-        "converter",
+         "counter",
+         "eq",
+         "eq_key",
+@@ -2794,7 +2794,7 @@ class _CountingAttr:
+         self.counter = _CountingAttr.cls_counter
+         self._default = default
+         self._validator = validator
+-        self.converter = converter
++        self._converter = converter
+         self.repr = repr
+         self.eq = eq
+         self.eq_key = eq_key
+@@ -2822,6 +2822,32 @@ class _CountingAttr:
+             self._validator = and_(self._validator, meth)
+         return meth
+ 
++    def converter(self, meth):
++        """
++        Decorator that sets *meth* as the converter for this attribute.
++
++        If a converter is already set, the new one is composed with the old
++        one using `attrs.converters.pipe`.
++
++        The wrapped method is passed the partially initialized instance,
++        the `attrs.Attribute` for this attribute, and the value, in that
++        order -- mirroring the signature used by the *validator* decorator.
++
++        Returns *meth* unchanged.
++
++        .. versionadded:: 25.1.0
++        """
++
++        def convert(value, instance, field):
++            return meth(instance, field, value)
++
++        new_converter = Converter(convert, takes_self=True, takes_field=True)
++        if self._converter is None:
++            self._converter = new_converter
++        else:
++            self._converter = pipe(self._converter, new_converter)
++        return meth
++
+     def default(self, meth):
+         """
+         Decorator that allows to set the default for an attribute.

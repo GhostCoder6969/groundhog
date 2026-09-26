@@ -1,0 +1,14 @@
+diff --git a/src/werkzeug/routing/matcher.py b/src/werkzeug/routing/matcher.py
+index 5c9c52d..f0fe014 100644
+--- a/src/werkzeug/routing/matcher.py
++++ b/src/werkzeug/routing/matcher.py
+@@ -137,7 +137,8 @@ class StateMachineMatcher:
+                             remaining = [""]
+ 
+                     converter_groups = sorted(
+-                        match.groupdict().items(), key=lambda entry: entry[0]
++                        match.groupdict().items(),
++                        key=lambda entry: int(entry[0].rsplit("_", 1)[-1]),
+                     )
+                     groups = [
+                         value

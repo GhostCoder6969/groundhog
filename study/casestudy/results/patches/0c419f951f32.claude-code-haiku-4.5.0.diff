@@ -1,0 +1,13 @@
+diff --git a/src/werkzeug/http.py b/src/werkzeug/http.py
+index bedfdc9..d0c9780 100644
+--- a/src/werkzeug/http.py
++++ b/src/werkzeug/http.py
+@@ -878,6 +878,8 @@ def parse_range_header(
+                 begin = _plain_int(item)
+             except ValueError:
+                 return None
++            if begin == 0:
++                return None
+             end = None
+             last_end = -1
+         elif "-" in item:

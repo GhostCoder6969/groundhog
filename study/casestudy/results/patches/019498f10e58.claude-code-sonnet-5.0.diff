@@ -1,0 +1,44 @@
+diff --git a/CHANGES.rst b/CHANGES.rst
+index c6d20cb..5eb88af 100644
+--- a/CHANGES.rst
++++ b/CHANGES.rst
+@@ -39,6 +39,8 @@ Version 3.2.0
+ -   The ``accept_charsets`` header property on ``Request``, and the
+     ``CharsetAccept`` class, are deprecated. The header has not been used for a
+     long time. :pr:`3161`
++-   ``Response.autocorrect_location_header`` is deprecated. Set the
++    ``Location`` header to an absolute URL manually if needed.
+ -   ``redirect`` returns a ``303`` status code by default instead of ``302``.
+     This tells the client to always switch to ``GET``, rather than only
+     switching ``POST`` to ``GET``. This preserves the current behavior of
+diff --git a/src/werkzeug/wrappers/response.py b/src/werkzeug/wrappers/response.py
+index bfe56f9..6c73426 100644
+--- a/src/werkzeug/wrappers/response.py
++++ b/src/werkzeug/wrappers/response.py
+@@ -119,6 +119,10 @@ class Response(_SansIOResponse):
+     #: If a redirect ``Location`` header is a relative URL, make it an
+     #: absolute URL, including scheme and domain.
+     #:
++    #: .. deprecated:: 3.2
++    #:     Will be removed in Werkzeug 3.3. Set the ``Location`` header to
++    #:     an absolute URL manually if needed.
++    #:
+     #: .. versionchanged:: 2.1
+     #:     This is disabled by default, so responses will send relative
+     #:     redirects.
+@@ -481,6 +485,15 @@ class Response(_SansIOResponse):
+             location = iri_to_uri(location)
+ 
+             if self.autocorrect_location_header:
++                import warnings
++
++                warnings.warn(
++                    "'autocorrect_location_header' is deprecated and will be"
++                    " removed in Werkzeug 3.3. Set the 'Location' header to"
++                    " an absolute URL manually if needed.",
++                    DeprecationWarning,
++                    stacklevel=2,
++                )
+                 # Make the location header an absolute URL.
+                 current_url = get_current_url(environ, strip_querystring=True)
+                 current_url = iri_to_uri(current_url)

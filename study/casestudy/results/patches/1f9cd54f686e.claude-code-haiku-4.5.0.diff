@@ -1,0 +1,15 @@
+diff --git a/src/click/_termui_impl.py b/src/click/_termui_impl.py
+index bb6ced1..993f4ef 100644
+--- a/src/click/_termui_impl.py
++++ b/src/click/_termui_impl.py
+@@ -635,9 +635,9 @@ def _tempfilepager(
+     try:
+         yield t.cast(t.BinaryIO, f), encoding, color
+         f.flush()
+-        f.close()
+         subprocess.call([str(cmd_path), f.name])
+     finally:
++        f.close()
+         os.unlink(f.name)
+ 
+ 

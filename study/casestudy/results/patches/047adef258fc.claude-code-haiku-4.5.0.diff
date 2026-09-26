@@ -1,0 +1,30 @@
+diff --git a/src/click/core.py b/src/click/core.py
+index f29dc46..113cbb5 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -1176,11 +1176,21 @@ class Command:
+ 
+     def get_help_option_names(self, ctx: Context) -> list[str]:
+         """Returns the names for the help option."""
+-        all_names = set(ctx.help_option_names)
++        # Collect all names that conflict with other parameters
++        conflicting_names = set()
+         for param in self.params:
+-            all_names.difference_update(param.opts)
+-            all_names.difference_update(param.secondary_opts)
+-        return list(all_names)
++            conflicting_names.update(param.opts)
++            conflicting_names.update(param.secondary_opts)
++
++        # Filter and deduplicate while preserving order
++        seen = set()
++        result = []
++        for name in ctx.help_option_names:
++            if name not in seen and name not in conflicting_names:
++                result.append(name)
++                seen.add(name)
++
++        return result
+ 
+     def get_help_option(self, ctx: Context) -> Option | None:
+         """Returns the help option object.

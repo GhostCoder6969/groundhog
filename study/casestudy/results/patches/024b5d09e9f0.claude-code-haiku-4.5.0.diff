@@ -1,0 +1,16 @@
+diff --git a/src/marshmallow/fields.py b/src/marshmallow/fields.py
+index 1c2e72e..cc2feb5 100644
+--- a/src/marshmallow/fields.py
++++ b/src/marshmallow/fields.py
+@@ -1947,7 +1947,10 @@ class Enum(Field[_EnumT]):
+             except ValueError as error:
+                 raise self.make_error("unknown", choices=self.choices_text) from error
+         try:
+-            return getattr(self.enum, val)
++            result = getattr(self.enum, val)
++            if not isinstance(result, self.enum):
++                raise AttributeError
++            return result
+         except AttributeError as error:
+             raise self.make_error("unknown", choices=self.choices_text) from error
+ 

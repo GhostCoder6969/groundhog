@@ -1,0 +1,42 @@
+commit 7c0cda153d301bde9a011e1dd7157d7e2b20889d
+Author: Tom Christie <tom@tomchristie.com>
+Date:   Fri Jul 26 09:36:03 2024 +0100
+
+    Improve InvalidURL error message. (#3250)
+
+diff --git a/httpx/_urlparse.py b/httpx/_urlparse.py
+index 215c536..479c2ef 100644
+--- a/httpx/_urlparse.py
++++ b/httpx/_urlparse.py
+@@ -160,7 +160,12 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
+     # If a URL includes any ASCII control characters including \t, \r, \n,
+     # then treat it as invalid.
+     if any(char.isascii() and not char.isprintable() for char in url):
+-        raise InvalidURL("Invalid non-printable ASCII character in URL")
++        char = next(char for char in url if char.isascii() and not char.isprintable())
++        idx = url.find(char)
++        error = (
++            f"Invalid non-printable ASCII character in URL, {char!r} at position {idx}."
++        )
++        raise InvalidURL(error)
+ 
+     # Some keyword arguments require special handling.
+     # ------------------------------------------------
+@@ -205,9 +210,15 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
+             # If a component includes any ASCII control characters including \t, \r, \n,
+             # then treat it as invalid.
+             if any(char.isascii() and not char.isprintable() for char in value):
+-                raise InvalidURL(
+-                    f"Invalid non-printable ASCII character in URL component '{key}'"
++                char = next(
++                    char for char in value if char.isascii() and not char.isprintable()
++                )
++                idx = value.find(char)
++                error = (
++                    f"Invalid non-printable ASCII character in URL {key} component, "
++                    f"{char!r} at position {idx}."
+                 )
++                raise InvalidURL(error)
+ 
+             # Ensure that keyword arguments match as a valid regex.
+             if not COMPONENT_REGEX[key].fullmatch(value):

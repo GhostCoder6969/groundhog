@@ -1,0 +1,47 @@
+commit 76bc28ae74e723760d54f097290ba85e717d5fe4
+Author: Nicolas Simonds <0xDEC0DE@users.noreply.github.com>
+Date:   Thu Jan 23 14:16:26 2025 +1100
+
+    fix: add `file` handling to URL fields (#2800)
+    
+    * fix: add `file` handling to URL fields
+    
+    Requires a modicum of special handling due to hostnames being
+    optional.
+    
+    Fixes: Issue #2249
+    
+    * Add more tests cases; update changelog
+    
+    ---------
+    
+    Co-authored-by: Steven Loria <sloria1@gmail.com>
+
+diff --git a/src/marshmallow/validate.py b/src/marshmallow/validate.py
+index 98e181ac..d56912a3 100644
+--- a/src/marshmallow/validate.py
++++ b/src/marshmallow/validate.py
+@@ -216,6 +216,7 @@ class URL(Validator):
+             raise ValidationError(message)
+ 
+         # Check first if the scheme is valid
++        scheme = None
+         if "://" in value:
+             scheme = value.split("://")[0].lower()
+             if scheme not in self.schemes:
+@@ -225,7 +226,14 @@ class URL(Validator):
+             relative=self.relative, absolute=self.absolute, require_tld=self.require_tld
+         )
+ 
+-        if not regex.search(value):
++        # Hostname is optional for file URLS. If absent it means `localhost`.
++        # Fill it in for the validation if needed
++        if scheme == "file" and value.startswith("file:///"):
++            matched = regex.search(value.replace("file:///", "file://localhost/", 1))
++        else:
++            matched = regex.search(value)
++
++        if not matched:
+             raise ValidationError(message)
+ 
+         return value

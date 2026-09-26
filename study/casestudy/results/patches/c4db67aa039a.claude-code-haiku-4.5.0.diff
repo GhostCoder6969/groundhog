@@ -1,0 +1,69 @@
+diff --git a/rich/cells.py b/rich/cells.py
+index a35065a..04c7b2c 100644
+--- a/rich/cells.py
++++ b/rich/cells.py
+@@ -183,10 +183,17 @@ def split_graphemes(
+         if (character := text[index]) in SPECIAL:
+             if character == "\u200d":
+                 # zero width joiner
+-                index += 2
++                start_index = index
++                index += 1
+                 if spans:
+                     start, _end, cell_length = spans[-1]
++                    # Check if there's a next character to skip
++                    if index < codepoint_count and text[index] not in SPECIAL:
++                        index += 1
+                     spans[-1] = (start, index, cell_length)
++                else:
++                    # No previous span, create a zero-width span for the ZWJ
++                    spans.append((start_index, index, 0))
+             elif last_measured_character:
+                 # variation selector 16
+                 index += 1
+@@ -197,18 +204,40 @@ def split_graphemes(
+                         cell_length += 1
+                         total_width += 1
+                     spans[-1] = (start, index, cell_length)
++            else:
++                # Variation selector with no previous character to modify
++                start_index = index
++                index += 1
++                if spans and spans[-1][2] == 0:
++                    # Extend previous zero-width span
++                    start, _end, cell_length = spans[-1]
++                    spans[-1] = (start, index, cell_length)
++                elif spans:
++                    # Create a new zero-width span
++                    spans.append((start_index, index, 0))
++                else:
++                    # Create the first span
++                    spans.append((start_index, index, 0))
+             continue
+ 
+         if character_width := get_character_cell_size(character, unicode_version):
+             last_measured_character = character
+             spans.append((index, index := index + 1, character_width))
+             total_width += character_width
+-        elif spans:
+-            # zero width characters are associated with the previous character
+-            start, _end, cell_length = spans[-1]
+-            spans[-1] = (start, index := index + 1, cell_length)
+         else:
+-            index = index + 1
++            # Zero-width character
++            start_index = index
++            index += 1
++            if spans and spans[-1][2] == 0:
++                # Previous span is also zero-width, extend it
++                start, _end, cell_length = spans[-1]
++                spans[-1] = (start, index, cell_length)
++            elif spans:
++                # Previous span has non-zero width, create a new zero-width span
++                spans.append((start_index, index, 0))
++            else:
++                # No previous span, create a zero-width span
++                spans.append((start_index, index, 0))
+ 
+     return (spans, total_width)
+ 

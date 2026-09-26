@@ -1,0 +1,47 @@
+commit c4db67aa039ac26041e702aa4db053ea56ac9a7f
+Author: Will McGugan <willmcgugan@gmail.com>
+Date:   Thu Feb 19 15:49:21 2026 +0000
+
+    test cases
+
+diff --git a/rich/cells.py b/rich/cells.py
+index a35065a7..bf8eaf5e 100644
+--- a/rich/cells.py
++++ b/rich/cells.py
+@@ -181,9 +181,14 @@ def split_graphemes(
+     SPECIAL = {"\u200d", "\ufe0f"}
+     while index < codepoint_count:
+         if (character := text[index]) in SPECIAL:
++            if not spans:
++                spans.append((index, index := index + 1, 0))
++                continue
+             if character == "\u200d":
+                 # zero width joiner
+-                index += 2
++                index += 1
++                if index != codepoint_count:
++                    index += 1
+                 if spans:
+                     start, _end, cell_length = spans[-1]
+                     spans[-1] = (start, index, cell_length)
+@@ -203,12 +208,15 @@ def split_graphemes(
+             last_measured_character = character
+             spans.append((index, index := index + 1, character_width))
+             total_width += character_width
+-        elif spans:
+-            # zero width characters are associated with the previous character
+-            start, _end, cell_length = spans[-1]
+-            spans[-1] = (start, index := index + 1, cell_length)
+         else:
+-            index = index + 1
++            # Character has zero width
++            if spans:
++                # zero width characters are associated with the previous character
++                start, _end, cell_length = spans[-1]
++                spans[-1] = (start, index := index + 1, cell_length)
++            else:
++                # A zero width character with no prior spans
++                spans.append((index, index := index + 1, 0))
+ 
+     return (spans, total_width)
+ 

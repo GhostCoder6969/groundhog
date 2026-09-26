@@ -1,0 +1,72 @@
+diff --git a/src/click/_termui_impl.py b/src/click/_termui_impl.py
+index d1fd74e..8c8c4ba 100644
+--- a/src/click/_termui_impl.py
++++ b/src/click/_termui_impl.py
+@@ -488,7 +488,7 @@ def _pager_contextmanager(
+     cmd_path, cmd_params = resolved
+ 
+     if use_tempfile:
+-        return _tempfilepager(cmd_path, color)
++        return _tempfilepager(cmd_path, cmd_params, color)
+ 
+     return _pipepager(cmd_path, cmd_params, color)
+ 
+@@ -517,6 +517,22 @@ def get_pager_file(color: bool | None = None) -> t.Generator[t.TextIO, None, Non
+             writer.flush()
+ 
+ 
++def _is_less(cmd_path: Path) -> bool:
++    """Check whether ``cmd_path`` resolves to ``less``, matching the command
++    stem so ``less.exe`` is recognized the same as a bare ``less``.
++
++    Windows filesystems are case-insensitive, so a Windows-resolved path is
++    matched case-insensitively there. POSIX keeps an exact, case-sensitive
++    match.
++    """
++    stem = cmd_path.stem
++
++    if WIN:
++        stem = stem.casefold()
++
++    return stem == "less"
++
++
+ @contextlib.contextmanager
+ def _pipepager(
+     cmd_path: Path, cmd_params: list[str], color: bool | None = None
+@@ -536,7 +552,7 @@ def _pipepager(
+ 
+     # If we're piping to less and the user hasn't decided on colors, we enable
+     # them by default we find the -R flag in the command line arguments.
+-    if color is None and cmd_path.name == "less":
++    if color is None and _is_less(cmd_path):
+         less_flags = f"{os.environ.get('LESS', '')}{' '.join(cmd_params)}"
+         if not less_flags:
+             env["LESS"] = "-R"
+@@ -595,14 +611,14 @@ def _pipepager(
+ 
+ @contextlib.contextmanager
+ def _tempfilepager(
+-    cmd_path: Path, color: bool | None = None
++    cmd_path: Path, cmd_params: list[str], color: bool | None = None
+ ) -> t.Iterator[tuple[t.TextIO, bool | None]]:
+     """Page through text by invoking a program on a temporary file.
+ 
+     Used as the primary pager strategy on Windows (where piping to
+     ``more`` adds spurious ``\\r\\n``), and as a fallback on other
+-    platforms. The command is invoked with the temporary file as its only
+-    argument: any parameters the user set in ``PAGER`` are not passed on.
++    platforms. The command is invoked with any parameters the user set in
++    ``PAGER``, followed by the temporary file.
+     """
+     import subprocess
+     import tempfile
+@@ -618,7 +634,7 @@ def _tempfilepager(
+         yield t.cast(t.TextIO, f), color
+         f.flush()
+         f.close()
+-        subprocess.call([str(cmd_path), f.name])
++        subprocess.call([str(cmd_path), *cmd_params, f.name])
+     finally:
+         # An error raised while paging skips the close() above, and Windows
+         # refuses to unlink a file the process still holds open. Closing here

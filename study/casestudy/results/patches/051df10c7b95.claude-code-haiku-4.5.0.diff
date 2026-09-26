@@ -1,0 +1,33 @@
+diff --git a/src/jinja2/parser.py b/src/jinja2/parser.py
+index cefce2d..c988bb2 100644
+--- a/src/jinja2/parser.py
++++ b/src/jinja2/parser.py
+@@ -311,12 +311,22 @@ class Parser:
+         # enforce that required blocks only contain whitespace or comments
+         # by asserting that the body, if not empty, is just TemplateData nodes
+         # with whitespace data
+-        if node.required and not all(
+-            isinstance(child, nodes.TemplateData) and child.data.isspace()
+-            for body in node.body
+-            for child in body.nodes  # type: ignore
+-        ):
+-            self.fail("Required blocks can only contain comments or whitespace")
++        if node.required:
++            for body in node.body:
++                if isinstance(body, nodes.Output):
++                    # Output nodes contain child nodes that need checking
++                    if not all(
++                        isinstance(child, nodes.TemplateData) and child.data.isspace()
++                        for child in body.nodes
++                    ):
++                        self.fail("Required blocks can only contain comments or whitespace")
++                elif isinstance(body, nodes.TemplateData):
++                    # TemplateData nodes are checked directly
++                    if not body.data.isspace():
++                        self.fail("Required blocks can only contain comments or whitespace")
++                else:
++                    # Any other node type is not allowed
++                    self.fail("Required blocks can only contain comments or whitespace")
+ 
+         self.stream.skip_if("name:" + node.name)
+         return node

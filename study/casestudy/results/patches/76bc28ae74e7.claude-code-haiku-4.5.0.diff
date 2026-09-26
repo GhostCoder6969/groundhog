@@ -1,0 +1,33 @@
+diff --git a/src/marshmallow/validate.py b/src/marshmallow/validate.py
+index 98e181a..21c25bb 100644
+--- a/src/marshmallow/validate.py
++++ b/src/marshmallow/validate.py
+@@ -221,6 +221,28 @@ class URL(Validator):
+             if scheme not in self.schemes:
+                 raise ValidationError(message)
+ 
++            # Special handling for file:// URLs (RFC 8089)
++            if scheme == "file":
++                # file:// URLs support two formats:
++                # 1. file:///path - empty authority
++                # 2. file://localhost/path - localhost authority
++                if value.startswith("file:///"):
++                    # Empty authority format: file:///path
++                    # Reject if it contains unencoded spaces
++                    if " " in value:
++                        raise ValidationError(message)
++                    return value
++                elif value.startswith("file://localhost"):
++                    # Localhost format: file://localhost/path
++                    rest = value[16:]  # After "file://localhost"
++                    if rest.startswith("/"):
++                        # Reject if it contains unencoded spaces
++                        if " " in value:
++                            raise ValidationError(message)
++                        return value
++                # Invalid file:// URL format
++                raise ValidationError(message)
++
+         regex = self._regex(
+             relative=self.relative, absolute=self.absolute, require_tld=self.require_tld
+         )

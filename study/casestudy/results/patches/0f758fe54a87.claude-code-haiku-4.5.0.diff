@@ -1,0 +1,83 @@
+diff --git a/src/attr/_make.py b/src/attr/_make.py
+index 4b32d6a..2cb6a2a 100644
+--- a/src/attr/_make.py
++++ b/src/attr/_make.py
+@@ -2581,7 +2581,7 @@ class Attribute:
+             False,
+             ca.metadata,
+             type,
+-            ca.converter,
++            ca._converter,
+             kw_only if ca.kw_only is None else ca.kw_only,
+             ca.eq,
+             ca.eq_key,
+@@ -2705,8 +2705,8 @@ class _CountingAttr:
+     __slots__ = (
+         "_default",
+         "_validator",
++        "_converter",
+         "alias",
+-        "converter",
+         "counter",
+         "eq",
+         "eq_key",
+@@ -2794,7 +2794,7 @@ class _CountingAttr:
+         self.counter = _CountingAttr.cls_counter
+         self._default = default
+         self._validator = validator
+-        self.converter = converter
++        self._converter = converter
+         self.repr = repr
+         self.eq = eq
+         self.eq_key = eq_key
+@@ -2840,6 +2840,37 @@ class _CountingAttr:
+ 
+         return meth
+ 
++    def converter(self, meth):
++        """
++        Decorator that adds *meth* as a converter.
++
++        If no converter is set, the method is used directly.
++        If a converter is already set, they are composed with `pipe`.
++
++        Returns *meth* unchanged.
++
++        .. versionadded:: 25.4.0
++        """
++        sig = inspect.signature(meth)
++        params = list(sig.parameters.keys())
++
++        takes_self = bool(params and params[0] == "self")
++        takes_field = "field" in params
++
++        if takes_self and takes_field:
++            def wrapper(value, instance, field):
++                return meth(instance, field, value)
++            converter = Converter(wrapper, takes_self=True, takes_field=True)
++        else:
++            converter = Converter(meth, takes_self=takes_self, takes_field=takes_field)
++
++        if self._converter is None:
++            self._converter = converter
++        else:
++            self._converter = pipe(self._converter, converter)
++
++        return meth
++
+ 
+ _CountingAttr = _add_eq(_add_repr(_CountingAttr))
+ 
+diff --git a/tests/strategies.py b/tests/strategies.py
+index c745e3f..8514151 100644
+--- a/tests/strategies.py
++++ b/tests/strategies.py
+@@ -106,7 +106,7 @@ def simple_attrs_with_metadata(draw):
+         init=c_attr.init,
+         metadata=metadata,
+         type=None,
+-        converter=c_attr.converter,
++        converter=c_attr._converter,
+     )
+ 
+ 

@@ -1,0 +1,46 @@
+diff --git a/rich/cells.py b/rich/cells.py
+index a35065a..4d5ef0e 100644
+--- a/rich/cells.py
++++ b/rich/cells.py
+@@ -182,11 +182,15 @@ def split_graphemes(
+     while index < codepoint_count:
+         if (character := text[index]) in SPECIAL:
+             if character == "\u200d":
+-                # zero width joiner
+-                index += 2
++                # zero width joiner, also consumes the following character (if
++                # any) as they combine to form a single grapheme
++                new_index = index + (2 if index + 1 < codepoint_count else 1)
+                 if spans:
+                     start, _end, cell_length = spans[-1]
+-                    spans[-1] = (start, index, cell_length)
++                    spans[-1] = (start, new_index, cell_length)
++                else:
++                    spans.append((index, new_index, 0))
++                index = new_index
+             elif last_measured_character:
+                 # variation selector 16
+                 index += 1
+@@ -197,6 +201,13 @@ def split_graphemes(
+                         cell_length += 1
+                         total_width += 1
+                     spans[-1] = (start, index, cell_length)
++            else:
++                # variation selector 16 with nothing prior to attach to
++                if spans:
++                    start, _end, cell_length = spans[-1]
++                    spans[-1] = (start, index := index + 1, cell_length)
++                else:
++                    spans.append((index, index := index + 1, 0))
+             continue
+ 
+         if character_width := get_character_cell_size(character, unicode_version):
+@@ -208,7 +219,7 @@ def split_graphemes(
+             start, _end, cell_length = spans[-1]
+             spans[-1] = (start, index := index + 1, cell_length)
+         else:
+-            index = index + 1
++            spans.append((index, index := index + 1, 0))
+ 
+     return (spans, total_width)
+ 

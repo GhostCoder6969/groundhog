@@ -1,0 +1,149 @@
+diff --git a/httpx/_config.py b/httpx/_config.py
+index 2c9634a..a32c2a4 100644
+--- a/httpx/_config.py
++++ b/httpx/_config.py
+@@ -6,8 +6,6 @@ import sys
+ import typing
+ import warnings
+ 
+-import certifi
+-
+ from ._models import Headers
+ from ._types import HeaderTypes, TimeoutTypes
+ from ._urls import URL
+@@ -100,6 +98,8 @@ class SSLContext(ssl.SSLContext):
+             self.verify_flags |= ssl.VERIFY_X509_STRICT
+ 
+         # Default to `certifi` for certificiate verification.
++        import certifi
++
+         self.load_verify_locations(cafile=certifi.where())
+ 
+         # OpenSSL keylog file support.
+diff --git a/httpx/_main.py b/httpx/_main.py
+index 41c50f7..47b50e3 100644
+--- a/httpx/_main.py
++++ b/httpx/_main.py
+@@ -6,7 +6,6 @@ import sys
+ import typing
+ 
+ import click
+-import httpcore
+ import pygments.lexers
+ import pygments.util
+ import rich.console
+@@ -21,6 +20,9 @@ from ._exceptions import RequestError
+ from ._models import Response
+ from ._status_codes import codes
+ 
++if typing.TYPE_CHECKING:
++    import httpcore
++
+ 
+ def print_help() -> None:
+     console = rich.console.Console()
+diff --git a/httpx/_transports/default.py b/httpx/_transports/default.py
+index a1978c5..0e56dc7 100644
+--- a/httpx/_transports/default.py
++++ b/httpx/_transports/default.py
+@@ -31,12 +31,11 @@ import ssl
+ import typing
+ from types import TracebackType
+ 
+-import httpcore
+-
+ from .._config import DEFAULT_LIMITS, Limits, Proxy, SSLContext, create_ssl_context
+ from .._exceptions import (
+     ConnectError,
+     ConnectTimeout,
++    HTTPError,
+     LocalProtocolError,
+     NetworkError,
+     PoolTimeout,
+@@ -74,7 +73,7 @@ def map_httpcore_exceptions() -> typing.Iterator[None]:
+     except Exception as exc:
+         mapped_exc = None
+ 
+-        for from_exc, to_exc in HTTPCORE_EXC_MAP.items():
++        for from_exc, to_exc in _get_httpcore_exc_map().items():
+             if not isinstance(exc, from_exc):
+                 continue
+             # We want to map to the most specific exception we can find.
+@@ -90,22 +89,25 @@ def map_httpcore_exceptions() -> typing.Iterator[None]:
+         raise mapped_exc(message) from exc
+ 
+ 
+-HTTPCORE_EXC_MAP = {
+-    httpcore.TimeoutException: TimeoutException,
+-    httpcore.ConnectTimeout: ConnectTimeout,
+-    httpcore.ReadTimeout: ReadTimeout,
+-    httpcore.WriteTimeout: WriteTimeout,
+-    httpcore.PoolTimeout: PoolTimeout,
+-    httpcore.NetworkError: NetworkError,
+-    httpcore.ConnectError: ConnectError,
+-    httpcore.ReadError: ReadError,
+-    httpcore.WriteError: WriteError,
+-    httpcore.ProxyError: ProxyError,
+-    httpcore.UnsupportedProtocol: UnsupportedProtocol,
+-    httpcore.ProtocolError: ProtocolError,
+-    httpcore.LocalProtocolError: LocalProtocolError,
+-    httpcore.RemoteProtocolError: RemoteProtocolError,
+-}
++def _get_httpcore_exc_map() -> dict[type[Exception], type[HTTPError]]:
++    import httpcore
++
++    return {
++        httpcore.TimeoutException: TimeoutException,
++        httpcore.ConnectTimeout: ConnectTimeout,
++        httpcore.ReadTimeout: ReadTimeout,
++        httpcore.WriteTimeout: WriteTimeout,
++        httpcore.PoolTimeout: PoolTimeout,
++        httpcore.NetworkError: NetworkError,
++        httpcore.ConnectError: ConnectError,
++        httpcore.ReadError: ReadError,
++        httpcore.WriteError: WriteError,
++        httpcore.ProxyError: ProxyError,
++        httpcore.UnsupportedProtocol: UnsupportedProtocol,
++        httpcore.ProtocolError: ProtocolError,
++        httpcore.LocalProtocolError: LocalProtocolError,
++        httpcore.RemoteProtocolError: RemoteProtocolError,
++    }
+ 
+ 
+ class ResponseStream(SyncByteStream):
+@@ -138,6 +140,8 @@ class HTTPTransport(BaseTransport):
+         verify: typing.Any = None,
+         cert: typing.Any = None,
+     ) -> None:
++        import httpcore
++
+         proxy = Proxy(url=proxy) if isinstance(proxy, (str, URL)) else proxy
+         if verify is not None or cert is not None:  # pragma: nocover
+             # Deprecated...
+@@ -224,6 +228,8 @@ class HTTPTransport(BaseTransport):
+         self,
+         request: Request,
+     ) -> Response:
++        import httpcore
++
+         assert isinstance(request.stream, SyncByteStream)
+ 
+         req = httpcore.Request(
+@@ -284,6 +290,8 @@ class AsyncHTTPTransport(AsyncBaseTransport):
+         verify: typing.Any = None,
+         cert: typing.Any = None,
+     ) -> None:
++        import httpcore
++
+         proxy = Proxy(url=proxy) if isinstance(proxy, (str, URL)) else proxy
+         if verify is not None or cert is not None:  # pragma: nocover
+             # Deprecated...
+@@ -370,6 +378,8 @@ class AsyncHTTPTransport(AsyncBaseTransport):
+         self,
+         request: Request,
+     ) -> Response:
++        import httpcore
++
+         assert isinstance(request.stream, AsyncByteStream)
+ 
+         req = httpcore.Request(
