@@ -107,8 +107,12 @@ class TestCommittingAgent:
         """aider commits by default. A diff against HEAD would show nothing."""
         repo, task = fixed_repo
         out = tmp_path / "results.jsonl"
+        # The fix comes from outside: the agent's checkout does not contain it.
+        fix = tmp_path / "calc.py.fix"
+        fix.write_text(subprocess.run(["git", "-C", str(repo), "show", f"{task['sha']}:calc.py"],
+                                      capture_output=True, text=True, check=True).stdout)
         agent = (
-            f"git checkout {task['sha']} -- calc.py && git -c user.email=a@b -c user.name=a "
+            f"cp {fix} calc.py && git -c user.email=a@b -c user.name=a "
             f"commit -qam 'agent fix'"
         )
         cfg = config(out, agent_cmd=agent, agent="committer")
@@ -186,7 +190,11 @@ class TestJobs:
         repo, task = fixed_repo
         tasks = tmp_path / "t.jsonl"
         tasks.write_text("".join(json.dumps({**task, "subject": f"Add double {c}"}) + "\n" for c in "abcdef"))
-        fix = f"git checkout {task['sha']} -- calc.py"
+        # The fix comes from outside: the agent's checkout does not contain it.
+        fixed = tmp_path / "calc.py.fix"
+        fixed.write_text(subprocess.run(["git", "-C", str(repo), "show", f"{task['sha']}:calc.py"],
+                                        capture_output=True, text=True, check=True).stdout)
+        fix = f"cp {fixed} calc.py"
         seq = self.run_cli(repo, tasks, tmp_path / "seq.jsonl", "--agent-cmd", fix, "--models", "fixer")
         par = self.run_cli(repo, tasks, tmp_path / "par.jsonl", "--agent-cmd", fix, "--models", "fixer",
                            "--jobs", "4", "--repeats", "2")

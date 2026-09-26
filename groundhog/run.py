@@ -146,8 +146,10 @@ def tools_for(test_files: set[str]) -> list[dict]:
 class Workspace:
     """A checkout the model is allowed to edit, with the tests write-protected."""
 
-    def __init__(self, repo: Path, task: dict, venv: Path | None, test_cmd: str, timeout: int):
+    def __init__(self, repo: Path, task: dict, venv: Path | None, test_cmd: str, timeout: int,
+                 isolated: bool = False):
         self.repo = repo
+        self.isolated = isolated
         self.task = task
         self.venv = venv
         self.timeout = timeout
@@ -163,9 +165,12 @@ class Workspace:
         self.turn = 0
         self.known_tools = {"list_files", "read_file", "write_file", "run_tests"}
 
-        with WORKTREE_LOCK:
-            git(repo, "worktree", "add", "--detach", "--quiet", str(self.tree), task["parent"])
-        git(self.tree, "checkout", task["sha"], "--", *task["test_files"])
+        if isolated:
+            self._isolated_checkout()
+        else:
+            with WORKTREE_LOCK:
+                git(repo, "worktree", "add", "--detach", "--quiet", str(self.tree), task["parent"])
+            git(self.tree, "checkout", task["sha"], "--", *task["test_files"])
         self.env = {"PYTHONPATH": ":".join(str(r) for r in source_roots(self.tree))}
         if task.get("language") == "javascript":
             link_node_modules(repo, self.tree)
@@ -175,6 +180,31 @@ class Workspace:
         # afterwards: editing the test is failing the task, however it happened.
         self.test_fingerprint = self._fingerprint_tests()
         self.last_fail_to_pass_met = False
+
+    def _isolated_checkout(self) -> None:
+        """A repository holding the parent commit and nothing after it.
+
+        A worktree shares the source repository's object store, so an agent
+        with a shell can run `git log --all` or `git show <sha>` and read the
+        answer. The built-in loop has no shell and cannot; external agents
+        can. Fetching the parent alone, shallow and by URL, leaves no later
+        commit, no remote and no link back to the source. The parent keeps its
+        real SHA, so diffing against it works as it does in a worktree.
+        """
+        self.tree.mkdir()
+        git(self.tree, "init", "--quiet")
+        # upload-pack refuses to serve an unadvertised SHA unless told to;
+        # -c reaches it through GIT_CONFIG_PARAMETERS.
+        git(self.tree, "-c", "uploadpack.allowAnySHA1InWant=true", "fetch", "--quiet",
+            "--depth", "1", "--no-tags", f"file://{self.repo.resolve()}", self.task["parent"])
+        git(self.tree, "checkout", "--quiet", "--detach", self.task["parent"])
+        git(self.tree, "update-ref", "-d", "FETCH_HEAD", check=False)
+        for rel in self.task["test_files"]:
+            target = self.tree / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(subprocess.run(
+                ["git", "-C", str(self.repo), "show", f"{self.task['sha']}:{rel}"],
+                capture_output=True, check=True).stdout)
 
     def _fingerprint_tests(self) -> dict[str, str]:
         out = {}
@@ -193,8 +223,9 @@ class Workspace:
         ]
 
     def close(self) -> None:
-        with WORKTREE_LOCK:
-            git(self.repo, "worktree", "remove", "--force", str(self.tree), check=False)
+        if not self.isolated:
+            with WORKTREE_LOCK:
+                git(self.repo, "worktree", "remove", "--force", str(self.tree), check=False)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _resolve(self, rel: str) -> Path | None:
@@ -438,7 +469,9 @@ def attempt(repo: Path, task: dict, model: str, cfg: argparse.Namespace, run_ind
     record.prompt_hash = hashlib.sha256(system.encode()).hexdigest()[:12]
     started = time.monotonic()
     solved = False
-    ws = Workspace(repo, task, cfg.venv, cfg.test_cmd, cfg.timeout)
+    # An external agent has a shell, and a worktree would show it the fix.
+    ws = Workspace(repo, task, cfg.venv, cfg.test_cmd, cfg.timeout,
+                   isolated=bool(getattr(cfg, "agent_cmd", None)))
 
     if getattr(cfg, "agent_cmd", None):
         record.agent = getattr(cfg, "agent", None) or "external"

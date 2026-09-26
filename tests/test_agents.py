@@ -96,3 +96,59 @@ tests/test_b.py::test_four[param-1] PASSED                               [100%]
 
     def test_empty_output(self):
         assert validate.passing("") == set()
+
+
+class TestIsolatedWorkspace:
+    """An agent with a shell must not be able to read the fix out of git."""
+
+    def _repo(self, tmp_path):
+        import subprocess
+        repo = tmp_path / "src"
+        repo.mkdir()
+        g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True,
+                                      capture_output=True, text=True).stdout.strip()
+        g("init", "-q")
+        g("config", "user.email", "t@t"); g("config", "user.name", "t")
+        (repo / "lib.py").write_text("def f():\n    return 1\n")
+        g("add", "."); g("commit", "-qm", "base")
+        parent = g("rev-parse", "HEAD")
+        (repo / "tests").mkdir()
+        (repo / "tests/test_lib.py").write_text("from lib import f\n\ndef test_f():\n    assert f() == 2\n")
+        (repo / "lib.py").write_text("def f():\n    return 2  # THE-FIX\n")
+        g("add", "."); g("commit", "-qm", "fix f")
+        sha = g("rev-parse", "HEAD")
+        task = {"sha": sha, "parent": parent, "test_files": ["tests/test_lib.py"],
+                "subject": "fix f", "language": "python"}
+        return repo, task
+
+    def test_later_commits_are_unreachable(self, tmp_path):
+        from groundhog.run import Workspace
+        repo, task = self._repo(tmp_path)
+        ws = Workspace(repo, task, None, "python -m pytest {tests}", 30, isolated=True)
+        try:
+            result = agents.run_external(
+                ws.tree, "git log --all --format=%H; git remote -v; "
+                         "git grep THE-FIX $(git rev-list --all)",
+                "p", "pytest", timeout=30)
+            assert task["sha"] not in result.output
+            assert "THE-FIX" not in result.output
+            missing = agents.run_external(
+                ws.tree, f"git cat-file -e {task['sha']}", "p", "pytest", timeout=30)
+            assert missing.exit_code != 0
+            # The parent keeps its real SHA, so the patch diff still works.
+            assert validate.git(ws.tree, "rev-parse", "HEAD").strip() == task["parent"]
+            assert (ws.tree / "tests/test_lib.py").is_file()
+            assert "return 1" in (ws.tree / "lib.py").read_text()
+        finally:
+            ws.close()
+        assert not ws.tmp.exists()
+
+    def test_worktree_mode_is_unchanged_for_the_builtin_loop(self, tmp_path):
+        from groundhog.run import Workspace
+        repo, task = self._repo(tmp_path)
+        ws = Workspace(repo, task, None, "python -m pytest {tests}", 30)
+        try:
+            assert (ws.tree / "tests/test_lib.py").is_file()
+            assert validate.git(ws.tree, "rev-parse", "HEAD").strip() == task["parent"]
+        finally:
+            ws.close()
