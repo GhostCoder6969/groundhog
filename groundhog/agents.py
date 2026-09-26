@@ -28,6 +28,10 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .sandbox import Sandbox
 
 
 @dataclass(frozen=True)
@@ -192,8 +196,9 @@ def run_external(
     timeout: int,
     venv: Path | None = None,
     extra_env: dict[str, str] | None = None,
+    sandbox: "Sandbox | None" = None,
 ) -> AgentRun:
-    """Run an agent command inside the prepared worktree."""
+    """Run an agent command inside the prepared worktree, sandboxed if given one."""
     prompt_file = tree / ".groundhog-task.md"
     prompt_file.write_text(prompt)
 
@@ -217,10 +222,11 @@ def run_external(
 
     started = time.monotonic()
     result = AgentRun(command=rendered)
+    argv = sandbox.wrap(rendered) if sandbox is not None else rendered
     try:
         proc = subprocess.run(
-            rendered,
-            shell=True,
+            argv,
+            shell=isinstance(argv, str),
             cwd=str(tree),
             capture_output=True,
             text=True,

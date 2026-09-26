@@ -90,6 +90,8 @@ def main() -> int:
     ap.add_argument("--models", help="comma separated provider:model list")
     ap.add_argument("--agent", help="a preset external agent (see `groundhog run --list-agents`)")
     ap.add_argument("--agent-cmd", help="any external agent command")
+    ap.add_argument("--sandbox", choices=("auto", "required", "off"), default="auto",
+                    help="keep external agents away from the clone and cache (see run --help)")
     ap.add_argument("--since", default="12 months ago", help="how far back to mine")
     ap.add_argument("--limit", type=int, default=20, help="tasks to run (0 for all)")
     ap.add_argument("--repeats", type=int, default=1)
@@ -153,6 +155,8 @@ def main() -> int:
         run_cmd += ["--agent", cfg.agent]
     if cfg.agent_cmd:
         run_cmd += ["--agent-cmd", cfg.agent_cmd]
+    if cfg.agent or cfg.agent_cmd:
+        run_cmd += ["--sandbox", cfg.sandbox]
     if cfg.max_spend is not None:
         run_cmd += ["--max-spend", str(cfg.max_spend)]
     run_cmd += env_flags(cfg)

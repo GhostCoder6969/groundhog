@@ -132,6 +132,16 @@ and grades what it left behind:
 have watched succeed. `groundhog run --list-agents` prints the exact commands;
 `--agent-cmd` takes anything else. If you verify a preset, please flip the flag.
 
+An agent with a shell could simply read the fix: the full history is on disk
+in the clone Groundhog was given and in its cache. So external agents run
+under the OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) with the
+clone, the cache, the task file and earlier patches unreadable, and a test
+checks that an agent which only tries to steal the answer scores 0. Each
+attempt records whether it was sandboxed, and the report flags any that were
+not. `--sandbox required` refuses to run without one; `--sandbox-deny PATH`
+covers another copy of the repo. The public repository on the network is
+out of its reach, so a public repo's recent commits remain findable online.
+
 `--models` runs Groundhog's own small tool-calling loop against any model:
 
 ```

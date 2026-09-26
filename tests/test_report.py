@@ -317,6 +317,16 @@ class TestMarkdownAndBadge:
         assert "\033[" in coloured
         assert "\033[" not in plain and "ollama:good" in plain
 
+    def test_warns_about_unsandboxed_external_agents(self, capsys):
+        from groundhog.report import print_table, summarise
+        recs = self.records()
+        for r in recs:
+            r["agent"] = "claude-code"
+        recs[0]["sandbox"] = recs[1]["sandbox"] = "sandbox-exec"  # ollama:good
+        print_table(summarise(recs), recs)
+        out = capsys.readouterr().out
+        assert "Unsandboxed: ollama:sloppy." in out
+
 
 class TestExternalAgentsAreMeasured:
     def test_no_tool_record_is_not_silence_for_an_external_agent(self):

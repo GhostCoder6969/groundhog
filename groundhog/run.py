@@ -23,7 +23,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .agents import AgentMissing, build_prompt, describe_presets, preset, run_external
-from .environment import DetectionFailed, detect, ensure
+from .environment import DetectionFailed, cache_root, detect, ensure
+from . import sandbox as sandboxing
 from .models import ProviderError, Usage, connect, price_of
 from .repos import repo_arg
 from .validate import (git, link_node_modules, passing, run, source_roots,
@@ -95,6 +96,7 @@ class Attempt:
     cost_usd: float | None = None
     nudges: int = 0
     agent: str = "builtin"
+    sandbox: str = ""  # external agents: "sandbox-exec", "bwrap" or "none" (#57)
     broke_pass_to_pass: int = 0
     fail_to_pass_passed: bool = False  # would a FAIL_TO_PASS-only harness call this solved?
     p2p_scope: str = "file"
@@ -479,6 +481,14 @@ def attempt(repo: Path, task: dict, model: str, cfg: argparse.Namespace, run_ind
         record.agent = getattr(cfg, "agent", None) or "external"
         try:
             _, failure = ws.run_tests()
+            # Keep the answer out of reach: the clone, the cache, the task file
+            # and earlier attempts' patches (#57).
+            box = sandboxing.build(
+                getattr(cfg, "sandbox", "auto"), repo=repo, cache=cache_root(),
+                workspace=ws.tmp, venv=cfg.venv, tasks=getattr(cfg, "tasks", None),
+                results=getattr(cfg, "out", None), patches=patch_dir(cfg),
+                extra=getattr(cfg, "sandbox_deny", None) or [])
+            record.sandbox = box.kind
             outcome = run_external(
                 ws.tree,
                 cfg.agent_cmd,
@@ -488,6 +498,7 @@ def attempt(repo: Path, task: dict, model: str, cfg: argparse.Namespace, run_ind
                 cfg.venv,
                 # The agent's own test runs must import the worktree, as grading does.
                 extra_env=ws.env,
+                sandbox=box,
             )
             record.error = outcome.error
             record.files_touched = changed_files(ws)
@@ -680,6 +691,11 @@ def main() -> int:
     ))
     ap.add_argument("--list-agents", action="store_true", help="print the preset table and exit")
     ap.add_argument("--agent-timeout", type=int, default=900, help="seconds an external agent may run")
+    ap.add_argument("--sandbox", choices=sandboxing.MODES, default="auto",
+                    help="run external agents where the source clone, cache, task file and "
+                         "patches are unreadable: auto (if available), required, off")
+    ap.add_argument("--sandbox-deny", type=Path, action="append", default=[], metavar="PATH",
+                    help="another path the agent must not read, e.g. a second clone; repeatable")
     ap.add_argument("--no-patches", action="store_true", help="do not save each attempt's diff")
     ap.add_argument("--resume", action="store_true",
                     help="append to --out, skipping attempts already recorded there")
@@ -716,6 +732,14 @@ def main() -> int:
         if cfg.models == ap.get_default("models"):
             # Label the row by the agent, not the word "external".
             cfg.models = cfg.agent
+
+    if cfg.agent_cmd and cfg.sandbox != "off" and sandboxing.available() is None:
+        if cfg.sandbox == "required":
+            print("error: --sandbox required, but neither sandbox-exec (macOS) nor bwrap "
+                  "(Linux) is available", file=sys.stderr)
+            return 2
+        print("warning: no sandbox available; the agent can read the source clone and "
+              "the cache, which hold the fix. Results will be marked unsandboxed.", file=sys.stderr)
 
     if cfg.venv is None and not cfg.no_auto_env:
         try:

@@ -223,6 +223,19 @@ def print_table(rows: list[dict], records: list[dict]) -> None:
                 f"this model.{RESET}"
             )
 
+    # An external agent outside a sandbox could read the fix from disk (#57).
+    # Say so beside the numbers rather than letting them pass as clean.
+    open_ = sorted({r["model"] for r in records
+                    if r.get("agent", "builtin") != "builtin"
+                    and r.get("sandbox") not in ("sandbox-exec", "bwrap")})
+    if open_:
+        print(
+            f"\n{YELLOW}  Unsandboxed: {', '.join(open_)}.{RESET}\n"
+            f"{DIM}  These agents had a shell and could read the source clone, which holds "
+            f"the fix.\n  Treat their scores as an upper bound; rerun with --sandbox required "
+            f"to rule it out.{RESET}"
+        )
+
     # Two overlapping intervals are not a ranking. Say so rather than letting the
     # order of the rows imply a result the data cannot support.
     ranked = [r for r in rows if not r["unmeasured"]]
