@@ -1,0 +1,42 @@
+diff --git a/httpx/_urlparse.py b/httpx/_urlparse.py
+index 25bf7f9..e81207a 100644
+--- a/httpx/_urlparse.py
++++ b/httpx/_urlparse.py
+@@ -21,6 +21,7 @@ from __future__ import annotations
+ import ipaddress
+ import re
+ import typing
++from urllib.parse import quote_plus
+ 
+ import idna
+ 
+@@ -528,22 +529,24 @@ def quote(string: str, safe: str = "/") -> str:
+ 
+ def urlencode(items: list[tuple[str, str]]) -> str:
+     """
+-    We can use a much simpler version of the stdlib urlencode here because
+-    we don't need to handle a bunch of different typing cases, such as bytes vs str.
++    Form encoding for query parameters, matching browser form submission behavior.
+ 
+     https://github.com/python/cpython/blob/b2f7b2ef0b5421e01efb8c7bee2ef95d3bab77eb/Lib/urllib/parse.py#L926
+ 
+-    Note that we use '%20' encoding for spaces. and '%2F  for '/'.
+-    This is slightly different than `requests`, but is the behaviour that browsers use.
++    Note that we use '+' encoding for spaces (form encoding) and keep characters like '/'
++    and ':' unencoded. This matches the behaviour that browsers use.
+ 
+     See
+     - https://github.com/encode/httpx/issues/2536
+     - https://github.com/encode/httpx/issues/2721
+     - https://docs.python.org/3/library/urllib.parse.html#urllib.parse.urlencode
+     """
++    # Safe characters for form encoding: everything except &, =, #, %, and space (which becomes +)
++    # This includes most special characters that don't conflict with URL structure.
++    safe_chars = ":/?@!$'()*,;"
+     return "&".join(
+         [
+-            percent_encoded(k, safe="") + "=" + percent_encoded(v, safe="")
++            quote_plus(k, safe=safe_chars) + "=" + quote_plus(v, safe=safe_chars)
+             for k, v in items
+         ]
+     )

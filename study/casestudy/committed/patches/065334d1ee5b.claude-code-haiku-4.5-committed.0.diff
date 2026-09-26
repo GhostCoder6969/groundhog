@@ -1,0 +1,15 @@
+diff --git a/src/jinja2/filters.py b/src/jinja2/filters.py
+index e5b5a00..af1b1ef 100644
+--- a/src/jinja2/filters.py
++++ b/src/jinja2/filters.py
+@@ -1433,6 +1433,10 @@ def do_attr(
+                 if not environment.is_safe_attribute(obj, name, value):
+                     return environment.unsafe_undefined(obj, name)
+ 
++                fmt = environment.wrap_str_format(value)
++                if fmt is not None:
++                    return fmt
++
+             return value
+ 
+     return environment.undefined(obj=obj, name=name)

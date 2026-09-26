@@ -1,0 +1,36 @@
+commit ce89f5d11feb0805da9ed10bb165238cc959f1bb
+Author: Hynek Schlawack <hs@ox.cx>
+Date:   Sat Mar 14 14:14:10 2026 +0100
+
+    Fix message passing in frozen errors
+    
+    Follow common exception workflows instead of working around it.
+    
+    fixes #1514
+
+diff --git a/src/attr/exceptions.py b/src/attr/exceptions.py
+index 3b7abb8..a207df4 100644
+--- a/src/attr/exceptions.py
++++ b/src/attr/exceptions.py
+@@ -2,8 +2,6 @@
+ 
+ from __future__ import annotations
+ 
+-from typing import ClassVar
+-
+ 
+ class FrozenError(AttributeError):
+     """
+@@ -16,8 +14,10 @@ class FrozenError(AttributeError):
+     .. versionadded:: 20.1.0
+     """
+ 
+-    msg = "can't set attribute"
+-    args: ClassVar[tuple[str]] = [msg]
++    def __init__(self):
++        msg = "can't set attribute"
++        super().__init__(msg)
++        self.msg = msg
+ 
+ 
+ class FrozenInstanceError(FrozenError):

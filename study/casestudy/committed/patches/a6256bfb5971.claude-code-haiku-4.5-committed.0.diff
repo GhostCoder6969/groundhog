@@ -1,0 +1,105 @@
+diff --git a/src/click/_termui_impl.py b/src/click/_termui_impl.py
+index d1fd74e..7174277 100644
+--- a/src/click/_termui_impl.py
++++ b/src/click/_termui_impl.py
+@@ -420,6 +420,38 @@ class _PagerWriter:
+         return getattr(self._stream, name)
+ 
+ 
++def _has_less_raw_mode(less_flags_str: str) -> bool:
++    """Check if less flags string contains the -R or -r flag for raw mode.
++
++    Properly parses option tokens, ignoring filenames, option values, and
++    the -- option terminator.
++    """
++    # Try to parse with shlex first (which handles quotes properly)
++    try:
++        tokens = shlex.split(less_flags_str)
++    except ValueError:
++        # Fall back to whitespace splitting if shlex fails (e.g., unbalanced quotes)
++        tokens = less_flags_str.split()
++
++    for token in tokens:
++        # Stop processing after option terminator
++        if token == "--":
++            break
++
++        # Check for raw mode in short options (-R, -r, or bundled like -rX)
++        if token.startswith("-") and not token.startswith("--"):
++            # Short option form
++            if "r" in token or "R" in token:
++                return True
++        # Check for raw mode in long options (--raw-control-chars but not --raw-control-chars=value)
++        elif token.startswith("--"):
++            # Only match the bare option, not if it has a value attached (--option=value)
++            if "=" not in token and token.lower() == "--raw-control-chars":
++                return True
++
++    return False
++
++
+ def _resolve_pager_command(cmd_parts: list[str]) -> tuple[Path, list[str]] | None:
+     """Resolve a pager ``argv`` to an absolute command path and its parameters.
+ 
+@@ -488,7 +520,7 @@ def _pager_contextmanager(
+     cmd_path, cmd_params = resolved
+ 
+     if use_tempfile:
+-        return _tempfilepager(cmd_path, color)
++        return _tempfilepager(cmd_path, cmd_params, color)
+ 
+     return _pipepager(cmd_path, cmd_params, color)
+ 
+@@ -535,13 +567,22 @@ def _pipepager(
+     env = dict(os.environ)
+ 
+     # If we're piping to less and the user hasn't decided on colors, we enable
+-    # them by default we find the -R flag in the command line arguments.
+-    if color is None and cmd_path.name == "less":
++    # them by default if we find the -R flag in the command line arguments.
++    pager_stem = cmd_path.stem
++    if WIN:
++        # On Windows, filesystems are case-insensitive, so match case-insensitively.
++        pager_stem = pager_stem.lower()
++        is_less = pager_stem == "less"
++    else:
++        # On POSIX, match the exact stem case-sensitively.
++        is_less = pager_stem == "less"
++
++    if color is None and is_less:
+         less_flags = f"{os.environ.get('LESS', '')}{' '.join(cmd_params)}"
+         if not less_flags:
+             env["LESS"] = "-R"
+             color = True
+-        elif "r" in less_flags or "R" in less_flags:
++        elif _has_less_raw_mode(less_flags):
+             color = True
+ 
+     c = subprocess.Popen(
+@@ -595,14 +636,14 @@ def _pipepager(
+ 
+ @contextlib.contextmanager
+ def _tempfilepager(
+-    cmd_path: Path, color: bool | None = None
++    cmd_path: Path, cmd_params: list[str], color: bool | None = None
+ ) -> t.Iterator[tuple[t.TextIO, bool | None]]:
+     """Page through text by invoking a program on a temporary file.
+ 
+     Used as the primary pager strategy on Windows (where piping to
+     ``more`` adds spurious ``\\r\\n``), and as a fallback on other
+-    platforms. The command is invoked with the temporary file as its only
+-    argument: any parameters the user set in ``PAGER`` are not passed on.
++    platforms. The command is invoked with parameters from ``PAGER`` and
++    the temporary file as arguments.
+     """
+     import subprocess
+     import tempfile
+@@ -618,7 +659,7 @@ def _tempfilepager(
+         yield t.cast(t.TextIO, f), color
+         f.flush()
+         f.close()
+-        subprocess.call([str(cmd_path), f.name])
++        subprocess.call([str(cmd_path)] + cmd_params + [f.name])
+     finally:
+         # An error raised while paging skips the close() above, and Windows
+         # refuses to unlink a file the process still holds open. Closing here

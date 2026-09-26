@@ -1,0 +1,14 @@
+1 models x 8 tasks x 1 repeats = 8 attempts
+resuming: 0 already recorded, 8 to run
+
+claude-code:haiku-4.5-committed  [1/8] Handle empty zstd responses (#3412                 PASS    36.4s  
+claude-code:haiku-4.5-committed  [2/8] add socks5h proxy support (#3178)                  PASS    53.8s  
+claude-code:haiku-4.5-committed  [3/8] made dependencies on certifi and h                 PASS   138.9s  
+claude-code:haiku-4.5-committed  [4/8] Just use default `safe=...` charac                 PASS    81.1s  
+claude-code:haiku-4.5-committed  [5/8] Review urlescape percent-safe set,                 PASS   175.9s  
+claude-code:haiku-4.5-committed  [6/8] Review URL percent escaping sets,                  PASS   158.6s  
+claude-code:haiku-4.5-committed  [7/8] Ensure JSON representation is comp                 PASS    61.0s  
+claude-code:haiku-4.5-committed  [8/8] Improve InvalidURL error message.                  PASS    45.9s  
+                                 -> 8/8
+
+8 attempts -> study/casestudy/committed/haiku-4.5-committed-httpx.jsonl

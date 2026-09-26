@@ -1,0 +1,42 @@
+commit 024b5d09e9f026f0f96d220e243be69346687ce0
+Author: Kadir Can Ozden <101993364+bysiber@users.noreply.github.com>
+Date:   Thu Mar 26 01:30:15 2026 +0300
+
+    Fix Enum field by-name lookup to only return actual members (#2902)
+    
+    * Fix Enum field by-name lookup to only return actual members
+    
+    Use dict-style access (self.enum[val]) instead of getattr(self.enum, val)
+    for by-name deserialization. getattr returns any attribute of the Enum
+    class, not just members. For example, passing "mro" or "__class__" would
+    return built-in methods/attributes instead of raising a validation error.
+    
+    The enum item access operator [] only looks up actual enum members,
+    so non-member attribute names now correctly raise a validation error.
+    
+    * Add test for Enum field rejecting non-member attributes by name
+    
+    * Update changelog
+    
+    ---------
+    
+    Co-authored-by: Jared Deckard <jared@shademaps.com>
+    Co-authored-by: Steven Loria <git@stevenloria.com>
+
+diff --git a/src/marshmallow/fields.py b/src/marshmallow/fields.py
+index 1c2e72e0..31c1492f 100644
+--- a/src/marshmallow/fields.py
++++ b/src/marshmallow/fields.py
+@@ -1947,9 +1947,10 @@ class Enum(Field[_EnumT]):
+             except ValueError as error:
+                 raise self.make_error("unknown", choices=self.choices_text) from error
+         try:
+-            return getattr(self.enum, val)
+-        except AttributeError as error:
++            ret = self.enum[val]
++        except KeyError as error:
+             raise self.make_error("unknown", choices=self.choices_text) from error
++        return ret
+ 
+ 
+ class Method(Field):

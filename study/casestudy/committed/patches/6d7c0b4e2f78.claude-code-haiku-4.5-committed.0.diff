@@ -1,0 +1,26 @@
+diff --git a/src/werkzeug/routing/matcher.py b/src/werkzeug/routing/matcher.py
+index 5c9c52d..b8dad9f 100644
+--- a/src/werkzeug/routing/matcher.py
++++ b/src/werkzeug/routing/matcher.py
+@@ -136,14 +136,16 @@ class StateMachineMatcher:
+                         if suffix == "/":
+                             remaining = [""]
+ 
+-                    converter_groups = sorted(
+-                        match.groupdict().items(), key=lambda entry: entry[0]
+-                    )
+-                    groups = [
+-                        value
++                    converter_groups = match.groupdict().items()
++                    werkzeug_groups = [
++                        (key, value)
+                         for key, value in converter_groups
+                         if key.startswith("__werkzeug_")
+                     ]
++                    werkzeug_groups.sort(
++                        key=lambda entry: int(entry[0].split("_")[-1])
++                    )
++                    groups = [value for key, value in werkzeug_groups]
+                     rv = _match(new_state, remaining, values + groups)
+                     if rv is not None:
+                         return rv

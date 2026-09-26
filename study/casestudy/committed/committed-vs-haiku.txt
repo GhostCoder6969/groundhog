@@ -1,0 +1,30 @@
+
+              PASS RATE            95% CI
+uncommitted        92%         78% – 97%
+committed          94%         82% – 98%
+
+change             +3%   over 36 shared tasks
+
+PAIRED TEST (McNemar, exact)
+  solved by uncommitted only:  0
+  solved by committed only:  1
+  solved by both:  33    neither: 2
+
+  no detectable difference (p = 1.000)
+
+  Only 1 tasks differ between the conditions. That is too few to detect anything but a very large effect — treat a null result here as 'we do not know', not 'no difference'.
+  An unpaired study of this effect would need ~1313 tasks; you have 36.
+
+HOW THEY WORKED  per attempt, shared tasks only
+                           uncommitted   committed
+target tests passed                97%         97%
+broke passing tests                 3%          6%
+edited a test                       8%          0%
+harness error/timeout               0%          3%
+median time                        77s         77s
+median files touched                 1           1
+  Tool-call figures are recorded by the built-in loop only; external agents' calls are not visible to the harness.
+
+solved by committed, not uncommitted  (why the other side failed)
+  Close the pager temp file before unlinking i  edited a test
+

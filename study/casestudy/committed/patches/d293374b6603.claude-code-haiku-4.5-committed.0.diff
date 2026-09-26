@@ -1,0 +1,24 @@
+diff --git a/httpx/_urlparse.py b/httpx/_urlparse.py
+index 479c2ef..b1e2122 100644
+--- a/httpx/_urlparse.py
++++ b/httpx/_urlparse.py
+@@ -182,8 +182,8 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
+ 
+     # Replace "username" and/or "password" with "userinfo".
+     if "username" in kwargs or "password" in kwargs:
+-        username = quote(kwargs.pop("username", "") or "")
+-        password = quote(kwargs.pop("password", "") or "")
++        username = quote(kwargs.pop("username", "") or "", safe="%")
++        password = quote(kwargs.pop("password", "") or "", safe="%")
+         kwargs["userinfo"] = f"{username}:{password}" if password else username
+ 
+     # Replace "raw_path" with "path" and "query".
+@@ -255,7 +255,7 @@ def urlparse(url: str = "", **kwargs: str | None) -> ParseResult:
+     # We end up with a parsed representation of the URL,
+     # with components that are plain ASCII bytestrings.
+     parsed_scheme: str = scheme.lower()
+-    parsed_userinfo: str = quote(userinfo, safe=SUB_DELIMS + ":")
++    parsed_userinfo: str = quote(userinfo, safe=SUB_DELIMS + ":%")
+     parsed_host: str = encode_host(host)
+     parsed_port: int | None = normalize_port(port, scheme)
+ 

@@ -1,0 +1,24 @@
+diff --git a/src/click/testing.py b/src/click/testing.py
+index 19fae4a..4a70df5 100644
+--- a/src/click/testing.py
++++ b/src/click/testing.py
+@@ -9,6 +9,7 @@ import shlex
+ import sys
+ import tempfile
+ import typing as t
++import warnings
+ from types import TracebackType
+ 
+ from . import _compat
+@@ -754,6 +755,11 @@ class CliRunner:
+         .. versionchanged:: 8.0
+             Added the ``temp_dir`` parameter.
+         """
++        warnings.warn(
++            "'isolated_filesystem' is deprecated, use 'tmp_path' fixture instead",
++            DeprecationWarning,
++            stacklevel=2,
++        )
+         cwd = os.getcwd()
+         dt = tempfile.mkdtemp(dir=temp_dir)
+         os.chdir(dt)

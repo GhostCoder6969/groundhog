@@ -55,6 +55,12 @@ in a repository where the tests arrive as a commit. A variant that commits the
 task's tests into the workspace would separate the two; it is not part of this
 pre-registered run.
 
+**Answered by the pre-registered variant** ([`committed/`](committed/README.md)):
+with the tests committed, Haiku edited a test **0** times in 36 attempts (3
+here) and solved 34/36. The reverting was the harness. The attrs and jinja
+tasks still failed, for real reasons this time: attrs passed its target tests
+and broke 2 others, and jinja timed out. The click task was solved.
+
 ## Cost
 
 Groundhog does not read Claude Code's spend yet. These figures come from the

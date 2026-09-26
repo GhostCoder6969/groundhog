@@ -1,0 +1,46 @@
+{
+  "baseline_rate": 1.0,
+  "current_rate": 0.9444,
+  "delta": -0.0556,
+  "shared_tasks": 36,
+  "p_value": 0.5,
+  "significant": false,
+  "verdict": "no detectable difference (p = 0.500)",
+  "behaviour": {
+    "baseline": {
+      "target_passed": 1.0,
+      "broke_tests": 0.0,
+      "edited_tests": 0.0,
+      "errored": 0.0,
+      "median_seconds": 69.1,
+      "median_files": 1.0,
+      "median_calls": null,
+      "tool_error_rate": null,
+      "median_first_edit": null,
+      "from_text": null
+    },
+    "current": {
+      "target_passed": 0.9722222222222222,
+      "broke_tests": 0.05555555555555555,
+      "edited_tests": 0.0,
+      "errored": 0.027777777777777776,
+      "median_seconds": 77.0,
+      "median_files": 1.0,
+      "median_calls": null,
+      "tool_error_rate": null,
+      "median_first_edit": null,
+      "from_text": null
+    }
+  },
+  "lost": [
+    {
+      "task": "Expose converter as a decorator (#1541)",
+      "why": "target passed, broke 2 other test(s)"
+    },
+    {
+      "task": "test on trio, fix all missing aclose related warnings (#1960)",
+      "why": "timed out"
+    }
+  ],
+  "won": []
+}

@@ -1,0 +1,17 @@
+diff --git a/src/attr/exceptions.py b/src/attr/exceptions.py
+index 3b7abb8..0971638 100644
+--- a/src/attr/exceptions.py
++++ b/src/attr/exceptions.py
+@@ -17,7 +17,11 @@ class FrozenError(AttributeError):
+     """
+ 
+     msg = "can't set attribute"
+-    args: ClassVar[tuple[str]] = [msg]
++
++    def __init__(self, *args):
++        if not args:
++            args = (self.msg,)
++        super().__init__(*args)
+ 
+ 
+ class FrozenInstanceError(FrozenError):

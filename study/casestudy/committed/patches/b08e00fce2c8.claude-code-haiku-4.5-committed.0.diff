@@ -1,0 +1,18 @@
+diff --git a/rich/live.py b/rich/live.py
+index cc3a39b..aef0783 100644
+--- a/rich/live.py
++++ b/rich/live.py
+@@ -166,7 +166,12 @@ class Live(JupyterMixin, RenderHook):
+                 finally:
+                     self._disable_redirect_io()
+                     self.console.pop_render_hook()
+-                    if not self._alt_screen and self.console.is_terminal:
++                    if (
++                        not self._alt_screen
++                        and self.console.is_terminal
++                        and self._live_render._shape
++                        and self._live_render._shape[1] > 0
++                    ):
+                         self.console.line()
+                     self.console.show_cursor(True)
+                     if self._alt_screen:

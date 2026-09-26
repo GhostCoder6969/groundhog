@@ -1,0 +1,92 @@
+diff --git a/src/click/_termui_impl.py b/src/click/_termui_impl.py
+index 4f8c091..86b2b2a 100644
+--- a/src/click/_termui_impl.py
++++ b/src/click/_termui_impl.py
+@@ -405,6 +405,34 @@ class MaybeStripAnsi(io.TextIOWrapper):
+         return super().write(text)
+ 
+ 
++class _PagerWriter:
++    """Wraps a pager stream and handles color stripping and proper stream lifecycle.
++
++    This wrapper:
++    - Strips ANSI codes when color=False
++    - Flushes the stream in close() but doesn't actually close borrowed streams
++    - Proxies other methods to the underlying stream
++    """
++    def __init__(self, stream: t.TextIO, *, color: bool):
++        self.stream = stream
++        self.color = color
++
++    def write(self, text: str) -> int:
++        if not self.color:
++            text = strip_ansi(text)
++        return self.stream.write(text)
++
++    def flush(self) -> None:
++        return self.stream.flush()
++
++    def close(self) -> None:
++        # Flush but don't close borrowed streams - each pager strategy owns the lifecycle
++        self.flush()
++
++    def __getattr__(self, name: str) -> t.Any:
++        return getattr(self.stream, name)
++
++
+ def _pager_contextmanager(
+     color: bool | None = None,
+ ) -> t.ContextManager[tuple[t.BinaryIO | t.TextIO, str, bool]]:
+@@ -447,31 +475,31 @@ def get_pager_file(color: bool | None = None) -> t.Generator[t.TextIO, None, Non
+     :param color: controls if the pager supports ANSI colors or not.  The
+                   default is autodetection.
+     """
+-    with _pager_contextmanager(color=color) as (stream, encoding, color):
+-        # Split streams by capabilities rather than the abstract TextIO /
+-        # BinaryIO annotations: buffered text streams can be unwrapped to bytes,
+-        # while other streams are yielded as-is.
+-        wrapper: MaybeStripAnsi | None = None
+-        if _has_binary_buffer(stream):
+-            # Text stream backed by a binary buffer.
+-            wrapper = MaybeStripAnsi(stream.buffer, color=color, encoding=encoding)
+-            stream = wrapper
++    ctx_result = _pager_contextmanager(color=color)
++    with ctx_result as result:
++        # Handle both 2-value and 3-value returns from the context manager
++        if isinstance(result, tuple):
++            if len(result) == 3:
++                stream, encoding, actual_color = result
++            else:
++                # Test fixture case: (stream, color)
++                stream, actual_color = result
++                encoding = None
++        else:
++            stream = result
++            actual_color = color
++            encoding = None
++
++        # Wrap the stream in a _PagerWriter for consistent interface and lifecycle handling
++        pager = _PagerWriter(stream, color=actual_color)
+         try:
+-            # Narrow the BinaryIO | TextIO union that _pager_contextmanager
+-            # yields; the caller writes text to the pager.
+-            yield t.cast(t.TextIO, stream)
++            yield pager
+         finally:
+             try:
+-                stream.flush()
++                pager.flush()
+             finally:
+-                # Hand the binary buffer back to the pager that produced it
+-                # rather than letting this TextIOWrapper close it on garbage
+-                # collection. The pager owns the buffer's lifecycle: subprocess
+-                # pipes and temp files are closed by their own helpers, while a
+-                # borrowed stdout must stay open for the caller. detach() runs
+-                # even if flush() raised, so the buffer is never closed here.
+-                if wrapper is not None:
+-                    wrapper.detach()
++                # Nothing more to do; _PagerWriter.close() will only flush, not close
++                pass
+ 
+ 
+ @contextlib.contextmanager

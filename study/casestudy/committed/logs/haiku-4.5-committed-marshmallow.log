@@ -1,0 +1,10 @@
+1 models x 4 tasks x 1 repeats = 4 attempts
+resuming: 0 already recorded, 4 to run
+
+claude-code:haiku-4.5-committed  [1/4] Fix Constant field rejecting None                  PASS    75.3s  
+claude-code:haiku-4.5-committed  [2/4] Fix Constant field with required=T                 PASS    88.5s  
+claude-code:haiku-4.5-committed  [3/4] Fix Enum field by-name lookup to o                 PASS    64.0s  
+claude-code:haiku-4.5-committed  [4/4] fix: add `file` handling to URL fi                 PASS    78.7s  
+                                 -> 4/4
+
+4 attempts -> study/casestudy/committed/haiku-4.5-committed-marshmallow.jsonl

@@ -1,0 +1,65 @@
+diff --git a/src/click/core.py b/src/click/core.py
+index de129ec..a299486 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -1561,23 +1561,38 @@ class Command:
+                     # by its truthiness/falsiness
+                     ctx.exit()
+             except (EOFError, KeyboardInterrupt) as e:
+-                echo(file=sys.stderr)
++                try:
++                    echo(file=sys.stderr)
++                except KeyboardInterrupt:
++                    pass
+                 raise Abort() from e
+             except ClickException as e:
+                 if not standalone_mode:
+                     raise
+-                e.show()
+-                sys.exit(e.exit_code)
++                try:
++                    e.show()
++                except KeyboardInterrupt:
++                    pass
++                try:
++                    sys.exit(e.exit_code)
++                except KeyboardInterrupt:
++                    sys.exit(e.exit_code)
+             except OSError as e:
+                 if e.errno == errno.EPIPE:
+                     sys.stdout = t.cast(t.TextIO, _PacifyFlushWrapper(sys.stdout))
+                     sys.stderr = t.cast(t.TextIO, _PacifyFlushWrapper(sys.stderr))
+-                    sys.exit(1)
++                    try:
++                        sys.exit(1)
++                    except KeyboardInterrupt:
++                        sys.exit(1)
+                 else:
+                     raise
+         except Exit as e:
+             if standalone_mode:
+-                sys.exit(e.exit_code)
++                try:
++                    sys.exit(e.exit_code)
++                except KeyboardInterrupt:
++                    sys.exit(e.exit_code)
+             else:
+                 # in non-standalone mode, return the exit code
+                 # note that this is only reached if `self.invoke` above raises
+@@ -1591,8 +1606,14 @@ class Command:
+         except Abort:
+             if not standalone_mode:
+                 raise
+-            echo(_("Aborted!"), file=sys.stderr)
+-            sys.exit(1)
++            try:
++                echo(_("Aborted!"), file=sys.stderr)
++            except KeyboardInterrupt:
++                pass
++            try:
++                sys.exit(1)
++            except KeyboardInterrupt:
++                sys.exit(1)
+ 
+     def _main_shell_completion(
+         self,

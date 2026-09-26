@@ -1,0 +1,14 @@
+1 models x 8 tasks x 1 repeats = 8 attempts
+resuming: 0 already recorded, 8 to run
+
+claude-code:haiku-4.5-committed  [1/8] Fix race condition on `KeyboardInt                 PASS   120.0s  
+claude-code:haiku-4.5-committed  [2/8] Fix `copy`, `deepcopy` and `pickle                 PASS    44.2s  
+claude-code:haiku-4.5-committed  [3/8] Forwards all user's parameters set                 PASS   171.9s  
+claude-code:haiku-4.5-committed  [4/8] Refactor pager stream handling; dr                 PASS   217.9s  
+claude-code:haiku-4.5-committed  [5/8] Close the pager temp file before u                 PASS    89.9s  
+claude-code:haiku-4.5-committed  [6/8] Land the progress bar on its final                 PASS    91.7s  
+claude-code:haiku-4.5-committed  [7/8] Preserve declaration order of help                 PASS    64.0s  
+claude-code:haiku-4.5-committed  [8/8] Deprecate `isolated_filesystem` an                 PASS    33.6s  
+                                 -> 8/8
+
+8 attempts -> study/casestudy/committed/haiku-4.5-committed-click.jsonl

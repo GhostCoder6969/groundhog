@@ -1,0 +1,42 @@
+{
+  "baseline_rate": 0.9167,
+  "current_rate": 0.9444,
+  "delta": 0.0278,
+  "shared_tasks": 36,
+  "p_value": 1.0,
+  "significant": false,
+  "verdict": "no detectable difference (p = 1.000)",
+  "behaviour": {
+    "baseline": {
+      "target_passed": 0.9722222222222222,
+      "broke_tests": 0.027777777777777776,
+      "edited_tests": 0.08333333333333333,
+      "errored": 0.0,
+      "median_seconds": 77.0,
+      "median_files": 1.0,
+      "median_calls": null,
+      "tool_error_rate": null,
+      "median_first_edit": null,
+      "from_text": null
+    },
+    "current": {
+      "target_passed": 0.9722222222222222,
+      "broke_tests": 0.05555555555555555,
+      "edited_tests": 0.0,
+      "errored": 0.027777777777777776,
+      "median_seconds": 77.0,
+      "median_files": 1.0,
+      "median_calls": null,
+      "tool_error_rate": null,
+      "median_first_edit": null,
+      "from_text": null
+    }
+  },
+  "lost": [],
+  "won": [
+    {
+      "task": "Close the pager temp file before unlinking it",
+      "why": "edited a test"
+    }
+  ]
+}

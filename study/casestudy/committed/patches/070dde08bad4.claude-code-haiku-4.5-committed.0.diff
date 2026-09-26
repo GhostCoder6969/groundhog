@@ -1,0 +1,28 @@
+diff --git a/src/marshmallow/fields.py b/src/marshmallow/fields.py
+index b081b4b..a49986c 100644
+--- a/src/marshmallow/fields.py
++++ b/src/marshmallow/fields.py
+@@ -2076,8 +2076,10 @@ class Constant(Field[_ContantT]):
+     def __init__(self, constant: _ContantT, **kwargs: Unpack[_BaseFieldKwargs]):
+         kwargs["load_default"] = constant
+         kwargs["dump_default"] = constant
++        required = kwargs.pop("required", False)
+         super().__init__(**kwargs)
+         self.constant = constant
++        self.required = required
+ 
+     def _serialize(self, value, *args, **kwargs) -> _ContantT:
+         return self.constant
+@@ -2085,6 +2087,12 @@ class Constant(Field[_ContantT]):
+     def _deserialize(self, value, *args, **kwargs) -> _ContantT:
+         return self.constant
+ 
++    def _validate_missing(self, value: typing.Any) -> None:
++        # For Constant fields, skip the required check since the value
++        # is always available via load_default
++        if value is None and not self.allow_none:
++            raise self.make_error("null")
++
+ 
+ # Aliases
+ URL = Url

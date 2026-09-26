@@ -1,0 +1,61 @@
+diff --git a/rich/cells.py b/rich/cells.py
+index a35065a..d9a6795 100644
+--- a/rich/cells.py
++++ b/rich/cells.py
+@@ -183,32 +183,48 @@ def split_graphemes(
+         if (character := text[index]) in SPECIAL:
+             if character == "\u200d":
+                 # zero width joiner
+-                index += 2
++                start_index = index
++                if index + 1 < codepoint_count:
++                    index += 2
++                else:
++                    index += 1
+                 if spans:
+                     start, _end, cell_length = spans[-1]
+                     spans[-1] = (start, index, cell_length)
+-            elif last_measured_character:
++                else:
++                    # At the start, create a new span
++                    spans.append((start_index, index, 0))
++            elif character == "\ufe0f":
+                 # variation selector 16
++                start_index = index
+                 index += 1
+-                if spans:
++                if last_measured_character and spans:
+                     start, _end, cell_length = spans[-1]
+                     if last_measured_character in cell_table.narrow_to_wide:
+                         last_measured_character = None
+                         cell_length += 1
+                         total_width += 1
+                     spans[-1] = (start, index, cell_length)
++                elif not spans:
++                    # At the start, create a new span
++                    spans.append((start_index, index, 0))
++            else:
++                # Unknown special character, just skip
++                index += 1
+             continue
+ 
+         if character_width := get_character_cell_size(character, unicode_version):
+             last_measured_character = character
+             spans.append((index, index := index + 1, character_width))
+             total_width += character_width
+-        elif spans:
+-            # zero width characters are associated with the previous character
+-            start, _end, cell_length = spans[-1]
+-            spans[-1] = (start, index := index + 1, cell_length)
+         else:
+-            index = index + 1
++            # Zero width character - associate with previous character or create new span
++            if spans:
++                start, _end, cell_length = spans[-1]
++                spans[-1] = (start, index := index + 1, cell_length)
++            else:
++                # No previous span, create a new one
++                spans.append((index, index := index + 1, 0))
+ 
+     return (spans, total_width)
+ 

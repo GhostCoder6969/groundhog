@@ -1,0 +1,86 @@
+diff --git a/src/attr/_make.py b/src/attr/_make.py
+index 4b32d6a..d14a23d 100644
+--- a/src/attr/_make.py
++++ b/src/attr/_make.py
+@@ -2570,6 +2570,9 @@ class Attribute:
+         elif ca.type is not None:
+             msg = f"Type annotation and type argument cannot both be present for '{name}'."
+             raise ValueError(msg)
++        # Use _converter if it was set via the decorator, otherwise use _raw_converter
++        converter = ca._converter if ca._converter is not None else ca._raw_converter
++
+         return cls(
+             name,
+             ca._default,
+@@ -2581,7 +2584,7 @@ class Attribute:
+             False,
+             ca.metadata,
+             type,
+-            ca.converter,
++            converter,
+             kw_only if ca.kw_only is None else ca.kw_only,
+             ca.eq,
+             ca.eq_key,
+@@ -2705,8 +2708,9 @@ class _CountingAttr:
+     __slots__ = (
+         "_default",
+         "_validator",
++        "_raw_converter",
++        "_converter",
+         "alias",
+-        "converter",
+         "counter",
+         "eq",
+         "eq_key",
+@@ -2794,7 +2798,8 @@ class _CountingAttr:
+         self.counter = _CountingAttr.cls_counter
+         self._default = default
+         self._validator = validator
+-        self.converter = converter
++        self._raw_converter = converter
++        self._converter = None
+         self.repr = repr
+         self.eq = eq
+         self.eq_key = eq_key
+@@ -2840,6 +2845,41 @@ class _CountingAttr:
+ 
+         return meth
+ 
++    def converter(self, meth):
++        """
++        Decorator that adds *meth* to the converters.
++
++        Returns *meth* unchanged.
++        """
++        import inspect
++
++        sig = inspect.signature(meth)
++        params = list(sig.parameters.keys())
++
++        takes_self = "self" in params
++        takes_field = "field" in params
++
++        if takes_self and takes_field:
++            def wrapper(value, instance, field):
++                return meth(instance, field, value)
++            new_converter = Converter(wrapper, takes_self=True, takes_field=True)
++        else:
++            new_converter = Converter(meth, takes_self=takes_self, takes_field=takes_field)
++
++        # If _raw_converter is set, pipe the new converter with it
++        if self._raw_converter is not None:
++            # Wrap raw converter in a Converter if needed
++            if not isinstance(self._raw_converter, Converter):
++                raw_conv = Converter(self._raw_converter)
++            else:
++                raw_conv = self._raw_converter
++            self._converter = pipe(raw_conv, new_converter)
++        elif self._converter is None:
++            self._converter = new_converter
++        else:
++            self._converter = pipe(self._converter, new_converter)
++
++        return meth
+ 
+ _CountingAttr = _add_eq(_add_repr(_CountingAttr))
+ 

@@ -1,0 +1,28 @@
+diff --git a/src/marshmallow/validate.py b/src/marshmallow/validate.py
+index 98e181a..118b598 100644
+--- a/src/marshmallow/validate.py
++++ b/src/marshmallow/validate.py
+@@ -210,6 +210,10 @@ class URL(Validator):
+     def _format_error(self, value) -> str:
+         return self.error.format(input=value)
+ 
++    def _validate_file_url(self, value: str) -> bool:
++        pattern = r"^file://(?:localhost)?/[^\s]*$"
++        return re.match(pattern, value, re.IGNORECASE) is not None
++
+     def __call__(self, value: str) -> str:
+         message = self._format_error(value)
+         if not value:
+@@ -221,6 +225,12 @@ class URL(Validator):
+             if scheme not in self.schemes:
+                 raise ValidationError(message)
+ 
++        # Special handling for file URLs
++        if "file" in self.schemes and value.lower().startswith("file://"):
++            if not self._validate_file_url(value):
++                raise ValidationError(message)
++            return value
++
+         regex = self._regex(
+             relative=self.relative, absolute=self.absolute, require_tld=self.require_tld
+         )
