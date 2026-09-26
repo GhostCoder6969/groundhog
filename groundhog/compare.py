@@ -79,16 +79,18 @@ def behaviour(records: list[dict]) -> dict[str, float | None]:
 
 def why_failed(records: list[dict]) -> str:
     """The most telling reason a task's attempts failed, for the flip list."""
-    for test, reason in (
-        (lambda r: r.get("tampered_with_tests"), "edited a test"),
-        (lambda r: (r.get("broke_pass_to_pass") or 0) > 0,
-         lambda r: f"target passed, broke {r['broke_pass_to_pass']} other test(s)"),
-        (lambda r: r.get("error"), lambda r: f"error: {r['error'][:40]}"),
-    ):
-        hit = next((r for r in records if test(r)), None)
-        if hit:
-            return reason(hit) if callable(reason) else reason
-    return "target tests still fail"
+    def reason(r: dict) -> str | None:
+        if r.get("tampered_with_tests"):
+            return "edited a test"
+        if "timed out" in (r.get("error") or ""):
+            return "timed out"
+        if (r.get("broke_pass_to_pass") or 0) > 0:
+            target = "target passed" if r.get("fail_to_pass_passed") else "target failed"
+            return f"{target}, broke {r['broke_pass_to_pass']} other test(s)"
+        if r.get("error"):
+            return f"error: {r['error'][:40]}"
+        return None
+    return next((why for why in map(reason, records) if why), "target tests still fail")
 
 
 def flips(a: list[dict], b: list[dict]) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:

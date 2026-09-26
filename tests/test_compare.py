@@ -67,6 +67,13 @@ class TestFlips:
         assert lost == [("Fix t1", "target passed, broke 3 other test(s)"), ("Fix t3", "edited a test")]
         assert won == [("Fix t2", "target tests still fail")]
 
+    def test_a_timeout_is_named_and_a_failed_target_is_not_called_passed(self):
+        a = [attempt("t1", True), attempt("t2", True)]
+        b = [attempt("t1", False, target=False, broke=13, error="agent timed out after 900s"),
+             attempt("t2", False, target=False, broke=2)]
+        lost, _ = compare.flips(a, b)
+        assert lost == [("Fix t1", "timed out"), ("Fix t2", "target failed, broke 2 other test(s)")]
+
 
 def test_cli_prints_behaviour_and_writes_it_to_json(tmp_path):
     before = [attempt("t1", True, tools=tools(8)), attempt("t2", False, tools=tools(20, errors=10))]
