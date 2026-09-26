@@ -37,5 +37,26 @@ groundhog bench . --agent claude-code --limit 10 --since "2 weeks ago"
 
 ## Whole-suite check
 
-Pending: the check was running when this file was written and its result
-is appended below when it lands.
+Each of the ten patches was applied to a fresh worktree at the task's
+parent commit, with the task's test files checked out from the fixing
+commit, and the entire suite run with `python -m pytest tests/ -q`:
+
+| task | subject | suite after the patch | failures outside the task |
+|---|---|---|---:|
+| afc2e0557ff7 | groundhog bench | 273 passed | 0 |
+| 878751561ca2 | external agents are not unmeasured | 271 passed | 0 |
+| 95d8b36f3959 | Rust detection and parser | 269 passed | 0 |
+| c4e9c34f957a | validate --stability | 261 passed | 0 |
+| 454839e6482a | --jobs | 258 passed | 0 |
+| 17ee2e809a31 | pyproject without tomllib | 256 passed | 0 |
+| 3ec44b8ca7e4 | --system-prompt, --sample | 254 passed | 0 |
+| 3fd2cc81fc6a | groundhog doctor | 251 passed | 0 |
+| b485405a0b7a | report --markdown, badge | 244 passed | 0 |
+| a7ea847a53df | F2P-only overstatement section | 238 passed | 0 |
+
+The passing counts fall because older parent commits have fewer tests.
+No patch broke anything outside its own task, so the 10/10 holds under
+full-suite PASS_TO_PASS, not only file scope. The check is the script in
+the commit that added this file's parent section; it is what
+`validate --p2p-scope full` does automatically, and the next dogfood run
+should simply use that flag.
