@@ -153,6 +153,35 @@ class TestIsolatedWorkspace:
         finally:
             ws.close()
 
+    def test_committed_tests_survive_git_tidying(self, tmp_path):
+        # The case study's Haiku failures: git checkout/restore/stash on the
+        # task's uncommitted tests threw them away. Committed, they survive.
+        from groundhog.run import Workspace
+        repo, task = self._repo(tmp_path)
+        ws = Workspace(repo, task, None, "python -m pytest {tests}", 30, isolated=True, commit_tests=True)
+        try:
+            tidy = agents.run_external(
+                ws.tree, "git checkout -- . && git restore tests && git stash && git stash pop; "
+                         "git status --porcelain", "p", "pytest", timeout=30)
+            assert "tests/" not in tidy.output
+            assert ws.tests_were_modified() == []
+            assert validate.git(ws.tree, "rev-parse", "HEAD~1").strip() == task["parent"]
+            assert task["sha"] not in validate.git(ws.tree, "log", "--all", "--format=%H")
+        finally:
+            ws.close()
+
+    def test_uncommitted_tests_are_lost_to_the_same_tidying(self, tmp_path):
+        # The default, kept for comparability: the same commands revert them.
+        from groundhog.run import Workspace
+        repo, task = self._repo(tmp_path)
+        ws = Workspace(repo, task, None, "python -m pytest {tests}", 30, isolated=True)
+        try:
+            agents.run_external(ws.tree, "git checkout -- . ; git clean -fdq tests",
+                                "p", "pytest", timeout=30)
+            assert ws.tests_were_modified() == ["tests/test_lib.py"]
+        finally:
+            ws.close()
+
 
 def test_workspace_path_does_not_name_the_fix_commit(monkeypatch, tmp_path):
     # The task id is the fix commit; an agent with a shell can run pwd.

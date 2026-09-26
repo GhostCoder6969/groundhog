@@ -97,6 +97,7 @@ class Attempt:
     nudges: int = 0
     agent: str = "builtin"
     sandbox: str = ""  # external agents: "sandbox-exec", "bwrap" or "none" (#57)
+    tests_committed: bool = False  # the task's tests arrived as a commit, not as uncommitted changes
     broke_pass_to_pass: int = 0
     fail_to_pass_passed: bool = False  # would a FAIL_TO_PASS-only harness call this solved?
     p2p_scope: str = "file"
@@ -149,7 +150,7 @@ class Workspace:
     """A checkout the model is allowed to edit, with the tests write-protected."""
 
     def __init__(self, repo: Path, task: dict, venv: Path | None, test_cmd: str, timeout: int,
-                 isolated: bool = False):
+                 isolated: bool = False, commit_tests: bool = False):
         self.repo = repo
         self.isolated = isolated
         self.task = task
@@ -175,6 +176,8 @@ class Workspace:
             with WORKTREE_LOCK:
                 git(repo, "worktree", "add", "--detach", "--quiet", str(self.tree), task["parent"])
             git(self.tree, "checkout", task["sha"], "--", *task["test_files"])
+        if commit_tests:
+            self._commit_tests()
         self.env = {"PYTHONPATH": ":".join(str(r) for r in source_roots(self.tree))}
         if task.get("language") == "javascript":
             link_node_modules(repo, self.tree)
@@ -209,6 +212,22 @@ class Workspace:
             target.write_bytes(subprocess.run(
                 ["git", "-C", str(self.repo), "show", f"{self.task['sha']}:{rel}"],
                 capture_output=True, check=True).stdout)
+
+    def _commit_tests(self) -> None:
+        """Put the task's tests in a commit on top of the parent.
+
+        By default they sit in the working tree as uncommitted changes, and an
+        agent that tidies with `git checkout`, `git restore` or `git stash`
+        throws them away: all three of Haiku 4.5's failures in the case study
+        were that. Committed, they read as the repository's state, as they
+        would after a teammate pushed failing tests. Diffs and changed files
+        are taken against the parent with test files excluded, so grading
+        is unchanged.
+        """
+        git(self.tree, "add", "--", *self.task["test_files"])
+        git(self.tree, "-c", "user.name=groundhog", "-c", "user.email=groundhog@localhost",
+            "-c", "commit.gpgsign=false",
+            "commit", "--quiet", "--no-verify", "-m", "Add failing tests")
 
     def _fingerprint_tests(self) -> dict[str, str]:
         out = {}
@@ -475,7 +494,9 @@ def attempt(repo: Path, task: dict, model: str, cfg: argparse.Namespace, run_ind
     solved = False
     # An external agent has a shell, and a worktree would show it the fix.
     ws = Workspace(repo, task, cfg.venv, cfg.test_cmd, cfg.timeout,
-                   isolated=bool(getattr(cfg, "agent_cmd", None)))
+                   isolated=bool(getattr(cfg, "agent_cmd", None)),
+                   commit_tests=bool(getattr(cfg, "commit_tests", False)))
+    record.tests_committed = bool(getattr(cfg, "commit_tests", False))
 
     if getattr(cfg, "agent_cmd", None):
         record.agent = getattr(cfg, "agent", None) or "external"
@@ -696,6 +717,9 @@ def main() -> int:
                          "patches are unreadable: auto (if available), required, off")
     ap.add_argument("--sandbox-deny", type=Path, action="append", default=[], metavar="PATH",
                     help="another path the agent must not read, e.g. a second clone; repeatable")
+    ap.add_argument("--commit-tests", action="store_true",
+                    help="give the agent the task's tests as a commit on top of the parent, "
+                         "not as uncommitted changes it might revert")
     ap.add_argument("--no-patches", action="store_true", help="do not save each attempt's diff")
     ap.add_argument("--resume", action="store_true",
                     help="append to --out, skipping attempts already recorded there")
