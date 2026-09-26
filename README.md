@@ -55,7 +55,7 @@ and `groundhog show 87eb7a4e9b0c` prints the one above.
 No API key, no network, nothing installed but [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uvx --from groundhog-eval groundhog demo
+uvx groundhog-eval demo
 ```
 
 That builds a repository with real history, mines tasks from it, rejects a
