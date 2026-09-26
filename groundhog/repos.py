@@ -100,11 +100,16 @@ def remote_name(repo: Path) -> str | None:
 
 
 def repo_arg(spec: str) -> Path:
-    """argparse type: a path or a URL, always yielding a local repository."""
+    """argparse type: a path or a URL, always yielding a local repository.
+
+    Resolved to an absolute path so that `.` has a name: Path(".").name is
+    "", which put bench's output under .groundhog/ instead of
+    .groundhog/<repo>/ and recorded "" as the repo on every attempt.
+    """
     try:
         path = resolve(spec)
     except (subprocess.TimeoutExpired, OSError) as exc:
         raise argparse.ArgumentTypeError(f"could not fetch {spec}: {exc}") from None
     if not (path / ".git").exists():
         raise argparse.ArgumentTypeError(f"{spec} is not a git repository")
-    return path
+    return path.resolve()

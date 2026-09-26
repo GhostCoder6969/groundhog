@@ -86,3 +86,11 @@ def test_repo_arg_rejects_a_plain_directory(tmp_path):
     with pytest.raises(Exception) as info:
         repos.repo_arg(str(tmp_path))
     assert "not a git repository" in str(info.value)
+
+
+def test_dot_resolves_to_a_named_directory(tmp_path, monkeypatch):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.chdir(tmp_path)
+    path = repos.repo_arg(".")
+    assert path.is_absolute()
+    assert path.name == tmp_path.name
