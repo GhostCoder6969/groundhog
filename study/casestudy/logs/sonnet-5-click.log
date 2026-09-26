@@ -1,0 +1,14 @@
+1 models x 8 tasks x 1 repeats = 8 attempts
+resuming: 0 already recorded, 8 to run
+
+claude-code:sonnet-5             [1/8] Fix race condition on `KeyboardInt                 PASS    96.3s  
+claude-code:sonnet-5             [2/8] Fix `copy`, `deepcopy` and `pickle                 PASS    64.1s  
+claude-code:sonnet-5             [3/8] Forwards all user's parameters set                 PASS   113.7s  
+claude-code:sonnet-5             [4/8] Refactor pager stream handling; dr                 PASS   271.3s  
+claude-code:sonnet-5             [5/8] Close the pager temp file before u                 PASS    22.4s  
+claude-code:sonnet-5             [6/8] Land the progress bar on its final                 PASS    89.3s  
+claude-code:sonnet-5             [7/8] Preserve declaration order of help                 PASS    24.8s  
+claude-code:sonnet-5             [8/8] Deprecate `isolated_filesystem` an                 PASS   103.9s  
+                                 -> 8/8
+
+8 attempts -> study/casestudy/results/sonnet-5-click.jsonl

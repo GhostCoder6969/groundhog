@@ -1,0 +1,31 @@
+
+              PASS RATE            95% CI
+sonnet-5          100%        90% – 100%
+haiku-4.5          92%         78% – 97%
+
+change             -8%   over 36 shared tasks
+
+PAIRED TEST (McNemar, exact)
+  solved by sonnet-5 only:  3
+  solved by haiku-4.5 only:  0
+  solved by both:  33    neither: 0
+
+  no detectable difference (p = 0.250)
+
+  Only 3 tasks differ between the conditions. That is too few to detect anything but a very large effect — treat a null result here as 'we do not know', not 'no difference'.
+
+HOW THEY WORKED  per attempt, shared tasks only
+                              sonnet-5   haiku-4.5
+target tests passed               100%         97%
+broke passing tests                 0%          3%
+edited a test                       0%          8%
+harness error/timeout               0%          0%
+median time                        69s         77s
+median files touched                 1           1
+  Tool-call figures are recorded by the built-in loop only; external agents' calls are not visible to the harness.
+
+solved by sonnet-5, not haiku-4.5  (why the other side failed)
+  Expose converter as a decorator (#1541)       edited a test
+  test on trio, fix all missing aclose related  edited a test
+  Close the pager temp file before unlinking i  edited a test
+

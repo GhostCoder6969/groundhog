@@ -1,0 +1,14 @@
+1 models x 8 tasks x 1 repeats = 8 attempts
+resuming: 0 already recorded, 8 to run
+
+claude-code:sonnet-5             [1/8] Handle empty zstd responses (#3412                 PASS    87.4s  
+claude-code:sonnet-5             [2/8] add socks5h proxy support (#3178)                  PASS   134.4s  
+claude-code:sonnet-5             [3/8] made dependencies on certifi and h                 PASS   204.4s  
+claude-code:sonnet-5             [4/8] Just use default `safe=...` charac                 PASS   149.5s  
+claude-code:sonnet-5             [5/8] Review urlescape percent-safe set,                 PASS   215.9s  
+claude-code:sonnet-5             [6/8] Review URL percent escaping sets,                  PASS    95.5s  
+claude-code:sonnet-5             [7/8] Ensure JSON representation is comp                 PASS    24.2s  
+claude-code:sonnet-5             [8/8] Improve InvalidURL error message.                  PASS    27.3s  
+                                 -> 8/8
+
+8 attempts -> study/casestudy/results/sonnet-5-httpx.jsonl

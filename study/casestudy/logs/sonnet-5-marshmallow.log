@@ -1,0 +1,10 @@
+1 models x 4 tasks x 1 repeats = 4 attempts
+resuming: 0 already recorded, 4 to run
+
+claude-code:sonnet-5             [1/4] Fix Constant field rejecting None                  PASS    28.4s  
+claude-code:sonnet-5             [2/4] Fix Constant field with required=T                 PASS    66.7s  
+claude-code:sonnet-5             [3/4] Fix Enum field by-name lookup to o                 PASS    23.5s  
+claude-code:sonnet-5             [4/4] fix: add `file` handling to URL fi                 PASS    87.9s  
+                                 -> 4/4
+
+4 attempts -> study/casestudy/results/sonnet-5-marshmallow.jsonl

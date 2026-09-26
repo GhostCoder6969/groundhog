@@ -1,0 +1,10 @@
+1 models x 4 tasks x 1 repeats = 4 attempts
+resuming: 0 already recorded, 4 to run
+
+claude-code:haiku-4.5            [1/4] validate base64                                    PASS    50.3s  
+claude-code:haiku-4.5            [2/4] disallow range -0                                  PASS    50.7s  
+claude-code:haiku-4.5            [3/4] deprecate autocorrect_location_hea                 PASS    77.0s  
+claude-code:haiku-4.5            [4/4] sort converter matches numerically                 PASS    69.0s  
+                                 -> 4/4
+
+4 attempts -> study/casestudy/results/haiku-4.5-werkzeug.jsonl
