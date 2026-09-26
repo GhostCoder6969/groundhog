@@ -11,6 +11,13 @@ groundhog bench . --agent claude-code --limit 10 --since "2 weeks ago"
   candidates, `--stability 2`, file-scope PASS_TO_PASS. Pin this set to
   compare against.
 - `results-claude-code.jsonl`: ten attempts, the newest ten tasks.
+- `results-qwen3-8b.jsonl`: the same ten tasks through the built-in tool
+  loop with qwen3:8b on Ollama, run while the machine was also running a
+  five-repo frontier study, so the times are inflated. 1/10; the solved
+  task was `doctor`, whose test enumerates the strings the output must
+  contain. One failed attempt (Rust) broke a previously-passing test
+  without passing its own, so it is not collateral in the F2P-only sense.
+- `results-all.jsonl`, `report.md`: both models together.
 - `patches/`: each attempt's diff beside the human's fix (`.human.diff`).
 - `report-claude-code.md`: the Markdown report.
 - `badge-claude-code.json`: the shields.io endpoint file.
@@ -18,6 +25,7 @@ groundhog bench . --agent claude-code --limit 10 --since "2 weeks ago"
 | Model | Solved | Pass rate | 95% CI | F2P-only | Collateral | Median |
 |---|---:|---:|---|---:|---|---:|
 | claude-code | 10/10 | 100% | 72% – 100% | 10/10 | 0 | 222s |
+| ollama:qwen3:8b | 1/10 | 10% | 2% – 40% | 1/10 | 0 | 673s |
 
 ## Caveats, in order of importance
 

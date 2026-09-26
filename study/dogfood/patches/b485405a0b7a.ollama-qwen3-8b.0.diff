@@ -1,0 +1,64 @@
+diff --git a/report.py b/report.py
+new file mode 100644
+index 0000000..282b6ca
+--- /dev/null
++++ b/report.py
+@@ -0,0 +1,57 @@
++def write_site(self, template, output_dir):
++    """Generate a standalone HTML report using the provided template."
++    
++    # Ensure the output directory exists
++    os.makedirs(output_dir, exist_ok=True)
++    
++    # Generate markdown content and escape pipes
++    markdown_content = self.generate_markdown()
++    markdown_content = markdown_content.replace('|', '\|')
++    
++    # Apply unmeasured model markers
++    markdown_content = self.mark_unmeasured_models(markdown_content)
++    
++    # Write markdown file
++    markdown_path = os.path.join(output_dir, "report.md")
++    with open(markdown_path, 'w') as f:
++        f.write(markdown_content)
++    
++    # Generate HTML file using the template
++    html_content = self.render_template(template, markdown_content)
++    html_path = os.path.join(output_dir, "report.html")
++    with open(html_path, 'w') as f:
++        f.write(html_content)
++    
++    # Write CLI output files if needed
++    if self.cli_output:
++        self._write_cli_output(output_dir)
++
++    def mark_unmeasured_models(self, content):
++        """Mark unmeasured models in the markdown content."
++        
++        # Add (unmeasured) marker to unmeasured models
++        return content.replace('model', 'model (unmeasured)')
++
++    def _write_cli_output(self, output_dir):
++        """Write both HTML and markdown files for CLI output."
++        
++        # Ensure the output directory exists
++        os.makedirs(output_dir, exist_ok=True)
++        
++        # Generate markdown content and escape pipes
++        markdown_content = self.generate_markdown()
++        markdown_content = markdown_content.replace('|', '\|')
++        
++        # Apply unmeasured model markers
++        markdown_content = self.mark_unmeasured_models(markdown_content)
++        
++        # Write markdown file
++        markdown_path = os.path.join(output_dir, "report.md")
++        with open(markdown_path, 'w') as f:
++            f.write(markdown, 'utf-8')
++        
++        # Generate HTML file using the template
++        html_content = self.render_template(template, markdown_content)
++        html_path = os.path.join(output_dir, "report.html")
++        with open(html_path, 'w') as f:
++            f.write(html_content)
+\ No newline at end of file

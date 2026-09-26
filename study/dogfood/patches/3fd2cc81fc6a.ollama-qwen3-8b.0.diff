@@ -1,0 +1,20 @@
+diff --git a/groundhog/__main__.py b/groundhog/__main__.py
+index 670bb11..32dd28b 100644
+--- a/groundhog/__main__.py
++++ b/groundhog/__main__.py
+@@ -45,6 +45,8 @@ def main() -> int:
+         from .show import main as run_it
+     elif command == "demo":
+         from .demo import main as run_it
++    elif command == "doctor":
++        from .doctor import main as run_it
+     else:
+         print(f"unknown command {command!r}\n\n{USAGE}", file=sys.stderr)
+         return 2
+@@ -52,4 +54,4 @@ def main() -> int:
+ 
+ 
+ if __name__ == "__main__":
+-    raise SystemExit(main())
++    raise SystemExit(main())
+\ No newline at end of file

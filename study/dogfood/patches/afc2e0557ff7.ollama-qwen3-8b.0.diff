@@ -1,0 +1,8 @@
+diff --git a/groundhog/bench.py b/groundhog/bench.py
+new file mode 100644
+index 0000000..6642b1c
+--- /dev/null
++++ b/groundhog/bench.py
+@@ -0,0 +1 @@
++import sys\n\ndef main():\n    sys.stderr.write("bench needs something to race\n")
+\ No newline at end of file

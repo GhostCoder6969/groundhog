@@ -1,0 +1,21 @@
+diff --git a/src/agent.py b/src/agent.py
+new file mode 100644
+index 0000000..e906650
+--- /dev/null
++++ b/src/agent.py
+@@ -0,0 +1,14 @@
++import argparse
++
++parser = argparse.ArgumentParser()
++parser.add_argument('--sample', help='Sample prompt')
++parser,add_argument('--prompt', help='Main prompt')
++args = parser.parse_args()
++
++def attempt():
++    # Existing code...
++    if args.sample or args.prompt:
++        prompt = f"{args.prompt}\n{args.sample}"
++        # Compute hash
++        prompt_hash = hash(prompt)
++    # Existing code...
+\ No newline at end of file

@@ -1,0 +1,13 @@
+diff --git a/src/report.py b/src/report.py
+new file mode 100644
+index 0000000..08bf694
+--- /dev/null
++++ b/src/report.py
+@@ -0,0 +1,6 @@
++def is_silent(model):
++    if model.is_external_agent:
++        return False
++    return not model.has_tool_records()
++
++# ... rest of the code ...
+\ No newline at end of file

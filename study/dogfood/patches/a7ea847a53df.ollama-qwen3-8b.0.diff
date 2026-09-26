@@ -1,0 +1,77 @@
+diff --git a/report.py b/report.py
+new file mode 100644
+index 0000000..be5dcdc
+--- /dev/null
++++ b/report.py
+@@ -0,0 +1,70 @@
++import json
++import argparse
++import os
++import sys
++from collections import defaultdict
++
++# Parse command-line arguments
++parser = argparse.ArgumentParser()
++parser.add_argument('--results', default='results/results.jsonl', help='Path to JSONL file containing raw results')
++parser.add_argument('--repo', help='Repository name displayed on the generated HTML page')
++parser.add_argument('--site', help='Output path for a standalone HTML page summarizing results')
++parser.add_argument('--template', default='site/template.html', help='Template file for generating the HTML page')
++parser.add_argument('--tasks', help='JSON file containing validated tasks for analyzing task-specific performance')
++parser.add_argument('--cutoff', help='Training cutoff dates for contamination analysis (format: NAME=YYYY-MM-DD)')
++args = parser.parse_args()
++
++# Load results
++records = [json.loads(l) for l in open(args.results).readlines() if l.strip()]
++
++# Summarize results
++def summarise(records):
++    # Implementation of summarise function
++    pass
++
++def print_table(rows, records):
++    # Implementation of print_table function
++    pass
++
++# Analyze model mechanics
++def mechanics(records):
++    # Initialize counters
++    total_edits = 0
++    collateral_actions = 0
++    # Process each record
++    for record in records:
++        if 'editing' in record:
++            total_edits += record['editing']
++        if 'collateral' in record:
++            collateral_actions += record['collateral']
++    return {"total_edits": total_edits, "collateral_actions": collateral_actions}
++
++# Analyze by trait
++def by_trait(records, tasks):
++    # Implementation of by_trait function
++    pass
++
++# Contamination split
++def contamination(records, tasks, overrides):
++    # Implementation of contamination function
++    pass
++
++# Write HTML site
++def write_site(rows, records, repo, out, template):
++    # Check for gaps before printing section
++    if has_gap(rows):
++        # Render section
++        pass
++
++# Helper function to check for gaps
++def has_gap(rows):
++    # Implementation of gap detection
++    return False
++
++# Main function
++def main():
++    # Main function logic
++    pass
++
++if __name__ == '__main__':
++    main()
+\ No newline at end of file

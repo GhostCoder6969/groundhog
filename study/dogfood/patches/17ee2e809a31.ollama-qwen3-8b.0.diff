@@ -1,0 +1,13 @@
+diff --git a/environment.py b/environment.py
+new file mode 100644
+index 0000000..5406f62
+--- /dev/null
++++ b/environment.py
+@@ -0,0 +1,6 @@
++def _toml(text):
++    try:
++        import tomllib
++    except ImportError:
++        raise RuntimeError("tomllib is required but not available")
++    return tomllib.loads(text)
+\ No newline at end of file
