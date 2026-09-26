@@ -25,7 +25,7 @@ groundhog bench . --agent claude-code --limit 10 --since "2 weeks ago"
 | Model | Solved | Pass rate | 95% CI | F2P-only | Collateral | Median |
 |---|---:|---:|---|---:|---|---:|
 | claude-code | 10/10 | 100% | 72% – 100% | 10/10 | 0 | 222s |
-| ollama:qwen3:8b | 1/10 | 10% | 2% – 40% | 1/10 | 0 | 673s |
+| ollama:qwen3:8b | 1/10 | 10% | 2% – 40% | 1/10 | 0 | 676s |
 
 ## Caveats, in order of importance
 
