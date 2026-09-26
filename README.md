@@ -101,7 +101,20 @@ a standalone HTML leaderboard, every attempt's diff, and a per-task grid.
 Then `groundhog show <task>` for any attempt you want to understand, and
 `groundhog compare before.jsonl after.jsonl` for whether a change to your
 agent setup helped or hurt, with a paired significance test rather than two
-percentages subtracted.
+percentages subtracted, and how the agent's behaviour moved. Two local models
+from the study, both 0/8 on httpx, still differ plainly:
+
+```
+HOW THEY WORKED               qwen2.5       qwen3
+broke passing tests               25%         25%
+harness error/timeout              0%         12%
+median time                       49s        533s
+median tool calls                   4           5
+tool calls that errored           27%         48%
+calls parsed from prose          100%          0%
+```
+
+It also lists every task that flipped, with why the losing side failed.
 
 ### Agents and models
 

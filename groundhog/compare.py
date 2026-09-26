@@ -15,7 +15,9 @@ import json
 import sys
 from pathlib import Path
 
-from .stats import mcnemar, tasks_needed, wilson
+from statistics import median
+
+from .stats import mcnemar, outcomes, tasks_needed, wilson
 
 BOLD, DIM, GREEN, RED, RESET = "\033[1m", "\033[2m", "\033[32m", "\033[31m", "\033[0m"
 
@@ -25,6 +27,83 @@ def load(path: Path, model: str | None = None) -> list[dict]:
     if model:
         records = [r for r in records if r["model"] == model]
     return records
+
+
+# (key, label, how to print it). Rates are shares of attempts; the rest are
+# medians over attempts, so one runaway attempt does not move them.
+BEHAVIOUR = [
+    ("target_passed", "target tests passed", "pct"),
+    ("broke_tests", "broke passing tests", "pct"),
+    ("edited_tests", "edited a test", "pct"),
+    ("errored", "harness error/timeout", "pct"),
+    ("median_seconds", "median time", "secs"),
+    ("median_files", "median files touched", "num"),
+    ("median_calls", "median tool calls", "num"),
+    ("tool_error_rate", "tool calls that errored", "pct"),
+    ("median_first_edit", "median first-edit turn", "num"),
+    ("from_text", "calls parsed from prose", "pct"),
+]
+
+
+def behaviour(records: list[dict]) -> dict[str, float | None]:
+    """How the agent worked, not just whether it solved the task.
+
+    A change in pass rate says that something moved; these say what. Tool-call
+    figures exist only for the built-in loop -- an external agent's calls are
+    invisible to the harness -- so they are None rather than a fake zero.
+    """
+    n = len(records)
+    if not n:
+        return {key: None for key, _, _ in BEHAVIOUR}
+
+    def share(pred) -> float:
+        return sum(1 for r in records if pred(r)) / n
+
+    measured = [r["tools"] for r in records if (r.get("tools") or {}).get("calls")]
+    calls = sum(t["calls"] for t in measured)
+    first_edits = [t["first_edit_turn"] for t in measured if t.get("first_edit_turn") is not None]
+    return {
+        "target_passed": share(lambda r: r.get("fail_to_pass_passed")),
+        "broke_tests": share(lambda r: (r.get("broke_pass_to_pass") or 0) > 0),
+        "edited_tests": share(lambda r: r.get("tampered_with_tests")),
+        "errored": share(lambda r: r.get("error")),
+        "median_seconds": median(r.get("seconds") or 0.0 for r in records),
+        "median_files": median(len(r.get("files_touched") or []) for r in records),
+        "median_calls": median(t["calls"] for t in measured) if measured else None,
+        "tool_error_rate": sum(t.get("errors", 0) for t in measured) / calls if calls else None,
+        "median_first_edit": median(first_edits) if first_edits else None,
+        "from_text": sum(t.get("recovered_from_text", 0) for t in measured) / calls if calls else None,
+    }
+
+
+def why_failed(records: list[dict]) -> str:
+    """The most telling reason a task's attempts failed, for the flip list."""
+    for test, reason in (
+        (lambda r: r.get("tampered_with_tests"), "edited a test"),
+        (lambda r: (r.get("broke_pass_to_pass") or 0) > 0,
+         lambda r: f"target passed, broke {r['broke_pass_to_pass']} other test(s)"),
+        (lambda r: r.get("error"), lambda r: f"error: {r['error'][:40]}"),
+    ):
+        hit = next((r for r in records if test(r)), None)
+        if hit:
+            return reason(hit) if callable(reason) else reason
+    return "target tests still fail"
+
+
+def flips(a: list[dict], b: list[dict]) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Tasks the change broke, and tasks it fixed, each with the losing side's reason."""
+    oa, ob = outcomes(a), outcomes(b)
+    by_task = lambda rs, t: [r for r in rs if r["task_id"] == t]
+    subject = {r["task_id"]: r.get("subject", r["task_id"]) for r in a + b}
+    lost = [(subject[t], why_failed(by_task(b, t))) for t in sorted(set(oa) & set(ob)) if oa[t] and not ob[t]]
+    won = [(subject[t], why_failed(by_task(a, t))) for t in sorted(set(oa) & set(ob)) if ob[t] and not oa[t]]
+    return lost, won
+
+
+def fmt(value: float | None, kind: str) -> str:
+    if value is None:
+        return "-"
+    return {"pct": f"{value:.0%}", "secs": f"{value:.0f}s"}.get(kind, f"{value:g}")
 
 
 def main() -> int:
@@ -87,6 +166,31 @@ def main() -> int:
             print(f"  {DIM}An unpaired study of this effect would need ~{need} tasks; "
                   f"you have {result.shared_tasks}.{RESET}")
 
+    shared = set(outcomes(a)) & set(outcomes(b))
+    a_shared = [r for r in a if r["task_id"] in shared]
+    b_shared = [r for r in b if r["task_id"] in shared]
+    ba, bb = behaviour(a_shared), behaviour(b_shared)
+    print(f"\n{BOLD}HOW THEY WORKED{RESET}  {DIM}per attempt, shared tasks only{RESET}")
+    print(f"{BOLD}{'':<26}{cfg.label_a:>12}{cfg.label_b:>12}{RESET}")
+    for key, label, kind in BEHAVIOUR:
+        if ba[key] is None and bb[key] is None:
+            continue
+        print(f"{label:<26}{fmt(ba[key], kind):>12}{fmt(bb[key], kind):>12}")
+    if ba["median_calls"] is None and bb["median_calls"] is None:
+        print(f"{DIM}  Tool-call figures are recorded by the built-in loop only; "
+              f"external agents' calls are not visible to the harness.{RESET}")
+
+    lost, won = flips(a, b)
+    for title, rows, colour in ((f"solved by {cfg.label_a}, not {cfg.label_b}", lost, RED),
+                                (f"solved by {cfg.label_b}, not {cfg.label_a}", won, GREEN)):
+        if not rows:
+            continue
+        print(f"\n{BOLD}{title}{RESET}  {DIM}(why the other side failed){RESET}")
+        for subj, why in rows[:10]:
+            print(f"  {colour}{subj[:44]:<46}{RESET}{DIM}{why}{RESET}")
+        if len(rows) > 10:
+            print(f"  {DIM}... and {len(rows) - 10} more{RESET}")
+
     payload = {
         "baseline_rate": round(result.a_rate, 4),
         "current_rate": round(result.b_rate, 4),
@@ -95,6 +199,9 @@ def main() -> int:
         "p_value": round(result.p_value, 5),
         "significant": result.significant,
         "verdict": result.verdict(cfg.label_a, cfg.label_b),
+        "behaviour": {"baseline": ba, "current": bb},
+        "lost": [{"task": t, "why": w} for t, w in lost],
+        "won": [{"task": t, "why": w} for t, w in won],
     }
     if cfg.json:
         cfg.json.parent.mkdir(parents=True, exist_ok=True)
