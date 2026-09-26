@@ -2,7 +2,7 @@
 name = "groundhog-eval"
 version = "0.2.0"
 description = "Replay your git history as a regression test for coding agents"
-authors = [{ name = "Abhinav S V" }]
+authors = [{ name = "Abhinav Shankaranarayanan Venkataraman" }]
 keywords = ["benchmark", "llm", "evaluation", "coding-agents", "swe-bench", "agent-evaluation"]
 readme = "README.md"
 requires-python = ">=3.10"

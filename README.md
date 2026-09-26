@@ -299,7 +299,7 @@ repositories and time windows, so a number without them is not reproducible.
 
 ```bibtex
 @software{sv_groundhog_2026,
-  author  = {S V, Abhinav},
+  author  = {Shankaranarayanan Venkataraman, Abhinav},
   title   = {{Groundhog}: Replaying Git History as a Regression Test for Coding Agents},
   year    = {2026},
   version = {0.2.0},

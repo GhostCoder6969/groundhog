@@ -1,6 +1,6 @@
 name: "Groundhog agent regression check"
 description: "Race a coding agent against tasks mined from this repo's history, compare to a baseline, and post the table."
-author: "Abhinav S V"
+author: "Abhinav Shankaranarayanan Venkataraman"
 branding:
   icon: "activity"
   color: "orange"
