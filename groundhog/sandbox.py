@@ -112,4 +112,26 @@ def _quote(path: Path) -> str:
     return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-__all__ = ["MODES", "Sandbox", "SandboxUnavailable", "available", "build"]
+def install_hint() -> str:
+    """How to get a sandbox on this machine."""
+    if sys.platform == "darwin":
+        return "sandbox-exec ships with macOS; check that /usr/bin/sandbox-exec exists"
+    if sys.platform.startswith("linux"):
+        return "install bubblewrap: apt install bubblewrap, dnf install bubblewrap, or pacman -S bubblewrap"
+    return "no supported sandbox on this platform; run external agents in a container or VM"
+
+
+def unsandboxed_warning(reason: str) -> str:
+    """The banner printed before external agents run without a sandbox."""
+    return (
+        f"\n  WARNING: external agents will run WITHOUT a sandbox ({reason}).\n"
+        "  An agent with a shell can read the source clone and Groundhog's cache,\n"
+        "  which hold every fix, and score by copying the answer (issue #57).\n"
+        "  Results are marked unsandboxed and the report flags them.\n"
+        f"  To fix: {install_hint()}.\n"
+        "  To refuse to run without one: --sandbox required\n"
+    )
+
+
+__all__ = ["MODES", "Sandbox", "SandboxUnavailable", "available", "build",
+           "install_hint", "unsandboxed_warning"]

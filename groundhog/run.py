@@ -757,13 +757,14 @@ def main() -> int:
             # Label the row by the agent, not the word "external".
             cfg.models = cfg.agent
 
-    if cfg.agent_cmd and cfg.sandbox != "off" and sandboxing.available() is None:
+    if cfg.agent_cmd and cfg.sandbox == "off":
+        print(sandboxing.unsandboxed_warning("--sandbox off"), file=sys.stderr)
+    elif cfg.agent_cmd and sandboxing.available() is None:
         if cfg.sandbox == "required":
             print("error: --sandbox required, but neither sandbox-exec (macOS) nor bwrap "
-                  "(Linux) is available", file=sys.stderr)
+                  f"(Linux) is available. {sandboxing.install_hint()}.", file=sys.stderr)
             return 2
-        print("warning: no sandbox available; the agent can read the source clone and "
-              "the cache, which hold the fix. Results will be marked unsandboxed.", file=sys.stderr)
+        print(sandboxing.unsandboxed_warning("none available on this machine"), file=sys.stderr)
 
     if cfg.venv is None and not cfg.no_auto_env:
         try:
@@ -775,6 +776,10 @@ def main() -> int:
             print(f"\n{exc}\n", file=sys.stderr)
             return 1
 
+    if not cfg.tasks.is_file():
+        print(f"error: no task file at {cfg.tasks}; run mine and validate first, or pass --tasks",
+              file=sys.stderr)
+        return 2
     tasks = [json.loads(l) for l in cfg.tasks.read_text().splitlines() if l.strip()]
     if cfg.limit:
         tasks = tasks[: cfg.limit]

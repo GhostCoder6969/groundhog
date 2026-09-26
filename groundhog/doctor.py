@@ -126,6 +126,14 @@ def checks(colour: bool = True) -> tuple[list[tuple[str, str, str]], bool]:
         rows.append((f"agent {name}", f"{ok}on PATH{reset}" if where else f"{DIM if colour else ''}absent{reset}",
                      where or p.install))
 
+    # External agents have a shell; without a sandbox they can read the fix
+    # from the source clone and the cache (issue #57).
+    from .sandbox import available as sandbox_available, install_hint
+    box = sandbox_available()
+    rows.append(("sandbox", f"{ok}{box}{reset}" if box else f"{warn}none{reset}",
+                 "external agents cannot read the clone or cache" if box else
+                 f"external agents could read the fix from disk; {install_hint()}"))
+
     cache = cache_root()
     if cache.exists():
         envs = [d for d in cache.iterdir() if d.is_dir() and d.name != "repos"]

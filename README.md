@@ -138,7 +138,7 @@ under the OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) with the
 clone, the cache, the task file and earlier patches unreadable, and a test
 checks that an agent which only tries to steal the answer scores 0. Each
 attempt records whether it was sandboxed, and the report flags any that were
-not. `--sandbox required` refuses to run without one; `--sandbox-deny PATH`
+not. `groundhog doctor` shows whether this machine has one, a run without one prints a warning before it starts, and `--sandbox required` refuses to run at all; `--sandbox-deny PATH`
 covers another copy of the repo. The public repository on the network is
 out of its reach, so a public repo's recent commits remain findable online.
 

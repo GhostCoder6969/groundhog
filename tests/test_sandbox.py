@@ -101,3 +101,47 @@ def test_a_cheat_that_reads_history_on_disk_scores_zero(mined, where):
     sandboxed = race(mined, source, "required")
     assert sandboxed and not any(r["solved"] for r in sandboxed), sandboxed
     assert all(r["sandbox"] == sandbox.available() for r in sandboxed)
+
+
+class TestWarnings:
+    def test_doctor_warns_when_there_is_no_sandbox(self, monkeypatch):
+        from groundhog import doctor
+        monkeypatch.setattr(sandbox, "available", lambda: None)
+        rows, _ = doctor.checks(False)
+        label, status, detail = next(r for r in rows if r[0] == "sandbox")
+        assert status == "none"
+        assert "could read the fix" in detail and sandbox.install_hint() in detail
+
+    def test_doctor_names_the_sandbox_it_found(self, monkeypatch):
+        from groundhog import doctor
+        monkeypatch.setattr(sandbox, "available", lambda: "bwrap")
+        rows, _ = doctor.checks(False)
+        assert next(r for r in rows if r[0] == "sandbox")[1] == "bwrap"
+
+    def test_linux_hint_names_bubblewrap(self, monkeypatch):
+        monkeypatch.setattr(sandbox.sys, "platform", "linux")
+        assert "bubblewrap" in sandbox.install_hint()
+
+    @pytest.mark.parametrize("mode, have, expect", [
+        ("off", "sandbox-exec", "--sandbox off"),
+        ("auto", None, "none available"),
+    ])
+    def test_run_prints_the_banner_before_any_attempt(self, mode, have, expect, monkeypatch, capsys, tmp_path):
+        from groundhog import run
+        monkeypatch.setattr(sandbox, "available", lambda: have)
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        # No tasks file: run stops right after the sandbox check, before any agent.
+        monkeypatch.setattr(sys, "argv", ["run", str(tmp_path), "--agent-cmd", "true", "--sandbox", mode,
+                                          "--no-auto-env", "--tasks", str(tmp_path / "missing.jsonl")])
+        assert run.main() == 2
+        err = capsys.readouterr().err
+        assert "WITHOUT a sandbox" in err and expect in err and "--sandbox required" in err
+        assert "no task file at" in err
+
+    def test_required_without_a_sandbox_exits_with_the_hint(self, monkeypatch, capsys, tmp_path):
+        from groundhog import run
+        monkeypatch.setattr(sandbox, "available", lambda: None)
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        monkeypatch.setattr(sys, "argv", ["run", str(tmp_path), "--agent-cmd", "true", "--sandbox", "required"])
+        assert run.main() == 2
+        assert sandbox.install_hint() in capsys.readouterr().err
