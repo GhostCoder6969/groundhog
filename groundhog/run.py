@@ -484,6 +484,8 @@ def attempt(repo: Path, task: dict, model: str, cfg: argparse.Namespace, run_ind
                 ws.test_cmd,
                 cfg.agent_timeout,
                 cfg.venv,
+                # The agent's own test runs must import the worktree, as grading does.
+                extra_env=ws.env,
             )
             record.error = outcome.error
             record.files_touched = changed_files(ws)

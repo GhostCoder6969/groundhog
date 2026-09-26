@@ -379,6 +379,54 @@ def cache_root() -> Path:
     return Path(base)
 
 
+def unlink_editable(venv_dir: Path) -> list[Path]:
+    """Remove the editable install's pointer back to the source clone.
+
+    `pip install -e .` maps the package to the clone at HEAD. Validation and
+    runs put the worktree on PYTHONPATH, so modules that exist at the old
+    commit load from the worktree -- but a module added *later* is missing
+    there, and the editable finder quietly serves HEAD's copy. Tasks that add
+    a new module then "pass without the fix" and are rejected, and whether
+    they are depends on whether the clone the cache points at still exists.
+    The worktree on PYTHONPATH is the package; nothing else may be.
+
+    Deletes setuptools' __editable__ .pth and finder, and drops .pth path
+    entries (hatchling, legacy develop installs) that point outside the venv --
+    at this clone, or at another copy of it that built a reused cache. The
+    dist-info stays, so installed metadata and entry points still resolve.
+    """
+    removed: list[Path] = []
+    home = venv_dir.resolve()
+    for site in venv_dir.glob("lib/python*/site-packages"):
+        for path in sorted(site.iterdir()):
+            if path.name.startswith("__editable__") and path.suffix in (".pth", ".py"):
+                path.unlink()
+                removed.append(path)
+            elif path.suffix == ".pth":
+                lines = path.read_text().splitlines()
+                keep = [line for line in lines if not _points_outside(line, site, home)]
+                if keep != lines:
+                    path.write_text("".join(f"{line}\n" for line in keep))
+                    removed.append(path)
+        cache = site / "__pycache__"
+        if cache.is_dir():
+            for stale in cache.glob("__editable__*"):
+                stale.unlink()
+    return removed
+
+
+def _points_outside(line: str, site: Path, home: Path) -> bool:
+    """A .pth path entry (not an import line) that leaves the venv."""
+    line = line.strip()
+    if not line or line.startswith(("#", "import ", "import\t")):
+        return False
+    try:
+        path = (site / line).resolve()  # relative entries are relative to site
+    except (OSError, ValueError):
+        return False
+    return path != home and home not in path.parents
+
+
 def ensure(repo: Path, plan: Plan | None = None, rebuild: bool = False, quiet: bool = False) -> Path:
     """Return a virtualenv for this repo, building it if necessary.
 
@@ -414,6 +462,8 @@ def ensure(repo: Path, plan: Plan | None = None, rebuild: bool = False, quiet: b
     marker = target / ".groundhog-ready"
 
     if marker.exists() and not rebuild:
+        # Environments built before this existed still carry the pointer.
+        unlink_editable(target)
         return target
     if target.exists():
         shutil.rmtree(target, ignore_errors=True)
@@ -450,6 +500,7 @@ def ensure(repo: Path, plan: Plan | None = None, rebuild: bool = False, quiet: b
                 "with this output."
             )
 
+    unlink_editable(target)
     marker.write_text(json.dumps({"repo": str(repo), "install": plan.install}, indent=2))
     say(f"  ready: {target}")
     return target

@@ -143,3 +143,66 @@ class TestNoTomllib:
         plan = environment.detect(tmp_path)
         assert any(".[test]" in cmd for cmd in plan.install)
         assert not any("NOT parsed" in n for n in plan.notes)
+
+
+class TestUnlinkEditable:
+    """Issue #56: the editable install served modules added after the task's
+    commit, so tasks that add a module were rejected depending on the cache."""
+
+    def venv(self, tmp_path: Path) -> Path:
+        site = tmp_path / "venv" / "lib" / "python3.12" / "site-packages"
+        site.mkdir(parents=True)
+        return site
+
+    def test_removes_setuptools_editable_finder(self, tmp_path):
+        site = self.venv(tmp_path)
+        write(site, "__editable__.pkg-0.1.pth", "import __editable___pkg_0_1_finder; __editable___pkg_0_1_finder.install()\n")
+        write(site, "__editable___pkg_0_1_finder.py", "MAPPING = {}\n")
+        write(site, "pkg-0.1.dist-info/METADATA", "Name: pkg\n")
+        env.unlink_editable(tmp_path / "venv")
+        assert sorted(p.name for p in site.iterdir()) == ["pkg-0.1.dist-info"]
+
+    def test_drops_path_entries_that_leave_the_venv(self, tmp_path):
+        site = self.venv(tmp_path)
+        clone = tmp_path / "clone" / "src"
+        clone.mkdir(parents=True)
+        write(site, "_pkg.pth", f"{clone}\n")
+        write(site, "keep.pth", "import something\nvendored\n")
+        env.unlink_editable(tmp_path / "venv")
+        assert (site / "_pkg.pth").read_text() == ""
+        assert (site / "keep.pth").read_text() == "import something\nvendored\n"
+
+    def test_drops_entries_for_a_deleted_clone_too(self, tmp_path):
+        # A reused cache can point at another copy of the repo, gone or not.
+        site = self.venv(tmp_path)
+        write(site, "_pkg.pth", f"{tmp_path / 'long-gone'}\n")
+        env.unlink_editable(tmp_path / "venv")
+        assert (site / "_pkg.pth").read_text() == ""
+
+
+class TestValidationIgnoresCacheState:
+    def validate(self, repo: Path, cache: Path) -> set[str]:
+        import json
+        import os
+        import subprocess
+
+        environ = dict(os.environ, GROUNDHOG_CACHE=str(cache))
+        root = Path(__file__).resolve().parents[1]
+        candidates, tasks = repo.parent / "cand.jsonl", repo.parent / "tasks.jsonl"
+        for args in (["mine", str(repo), "--since", "10 years ago", "--out", str(candidates)],
+                     ["validate", str(repo), "--candidates", str(candidates), "--out", str(tasks),
+                      "--p2p-scope", "full"]):
+            subprocess.run([sys.executable, "-m", "groundhog", *args], cwd=root, env=environ,
+                           capture_output=True, text=True, check=True, timeout=600)
+        return {t["subject"] for t in map(json.loads, tasks.read_text().splitlines()) if t}
+
+    def test_a_task_adding_a_module_validates_cold_and_warm(self, tmp_path):
+        from groundhog import demo
+
+        cache = tmp_path / "cache"
+        repo = tmp_path / "first" / "demolib"
+        demo.build_repo(repo)
+        cold = self.validate(repo, cache)
+        warm = self.validate(repo, cache)
+        assert "Add numbers module" in cold, cold
+        assert cold == warm
