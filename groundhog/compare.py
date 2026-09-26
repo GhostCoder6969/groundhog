@@ -66,7 +66,8 @@ def behaviour(records: list[dict]) -> dict[str, float | None]:
         "target_passed": share(lambda r: r.get("fail_to_pass_passed")),
         "broke_tests": share(lambda r: (r.get("broke_pass_to_pass") or 0) > 0),
         "edited_tests": share(lambda r: r.get("tampered_with_tests")),
-        "errored": share(lambda r: r.get("error")),
+        # A test edit is recorded in `error` too; that is the agent failing, not the harness.
+        "errored": share(lambda r: r.get("error") and not r.get("tampered_with_tests")),
         "median_seconds": median(r.get("seconds") or 0.0 for r in records),
         "median_files": median(len(r.get("files_touched") or []) for r in records),
         "median_calls": median(t["calls"] for t in measured) if measured else None,

@@ -37,6 +37,12 @@ class TestBehaviour:
         assert b["edited_tests"] == 0.25
         assert b["errored"] == 0.25
 
+    def test_a_test_edit_is_not_a_harness_error(self):
+        # run.py writes "modified test files: ..." into `error` as well.
+        rows = [attempt("t1", False, tampered=True, error="modified test files: tests/t.py")]
+        b = compare.behaviour(rows)
+        assert b["edited_tests"] == 1.0 and b["errored"] == 0.0
+
     def test_tool_figures_from_the_builtin_loop(self):
         rows = [attempt("t1", True, tools=tools(10, errors=1, first_edit=2)),
                 attempt("t2", False, tools=tools(30, errors=5, first_edit=6, from_text=30))]
