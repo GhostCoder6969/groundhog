@@ -86,3 +86,20 @@ def test_end_to_end_then_resume(repo, tmp_path):
     assert "1. Mine" not in second.stderr
     assert "--resume" in second.stderr
     assert len((out / "results.jsonl").read_text().splitlines()) == 1
+
+
+
+def test_report_step_forwards_no_color(monkeypatch, tmp_path):
+    from groundhog import bench
+    seen = []
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    monkeypatch.setattr(bench, "step", lambda title, cmd, colour: seen.append(cmd) or 0)
+    monkeypatch.setattr(bench, "count", lambda path: 1)
+    monkeypatch.setattr(bench.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(sys, "argv", ["bench", str(tmp_path), "--models", "ollama:x",
+                                      "--out-dir", str(tmp_path / "out"), "--no-color"])
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "tasks.jsonl").write_text("{}\n")
+    bench.main()
+    report = next(cmd for cmd in seen if "report" in cmd)
+    assert "--no-color" in report

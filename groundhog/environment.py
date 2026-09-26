@@ -408,6 +408,11 @@ def unlink_editable(venv_dir: Path) -> list[Path]:
                 if keep != lines:
                     path.write_text("".join(f"{line}\n" for line in keep))
                     removed.append(path)
+        # direct_url.json records file://<clone> for the editable install.
+        for record in site.glob("*.dist-info/direct_url.json"):
+            if '"file://' in record.read_text():
+                record.unlink()
+                removed.append(record)
         cache = site / "__pycache__"
         if cache.is_dir():
             for stale in cache.glob("__editable__*"):
@@ -462,8 +467,11 @@ def ensure(repo: Path, plan: Plan | None = None, rebuild: bool = False, quiet: b
     marker = target / ".groundhog-ready"
 
     if marker.exists() and not rebuild:
-        # Environments built before this existed still carry the pointer.
+        # Environments built before this existed still carry the pointer,
+        # and a marker naming the clone.
         unlink_editable(target)
+        if '"repo"' in marker.read_text():
+            marker.write_text(json.dumps({"install": plan.install}, indent=2))
         return target
     if target.exists():
         shutil.rmtree(target, ignore_errors=True)
@@ -501,7 +509,9 @@ def ensure(repo: Path, plan: Plan | None = None, rebuild: bool = False, quiet: b
             )
 
     unlink_editable(target)
-    marker.write_text(json.dumps({"repo": str(repo), "install": plan.install}, indent=2))
+    # No clone path here: the venv is on the agent's PATH, so anything in it
+    # is readable by the agent, and the clone holds every future commit.
+    marker.write_text(json.dumps({"install": plan.install}, indent=2))
     say(f"  ready: {target}")
     return target
 

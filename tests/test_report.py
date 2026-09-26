@@ -306,6 +306,17 @@ class TestMarkdownAndBadge:
                         "--out", str(tmp_path / "b.json")], check=True, capture_output=True)
         assert _json.loads((tmp_path / "b.json").read_text())["schemaVersion"] == 1
 
+    def test_cli_no_color_prints_plain_text(self, tmp_path):
+        import json as _json
+        import subprocess, sys
+        results = tmp_path / "r.jsonl"
+        results.write_text("\n".join(_json.dumps(r) for r in self.records()) + "\n")
+        base = [sys.executable, "-m", "groundhog", "report", "--results", str(results)]
+        coloured = subprocess.run(base, check=True, capture_output=True, text=True).stdout
+        plain = subprocess.run([*base, "--no-color"], check=True, capture_output=True, text=True).stdout
+        assert "\033[" in coloured
+        assert "\033[" not in plain and "ollama:good" in plain
+
 
 class TestExternalAgentsAreMeasured:
     def test_no_tool_record_is_not_silence_for_an_external_agent(self):

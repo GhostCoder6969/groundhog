@@ -206,3 +206,17 @@ class TestValidationIgnoresCacheState:
         warm = self.validate(repo, cache)
         assert "Add numbers module" in cold, cold
         assert cold == warm
+
+
+class TestNoCloneInTheVenv:
+    """The venv is on an external agent's PATH; it must not say where the
+    clone, and so every future commit, lives."""
+
+    def test_removes_editable_direct_url(self, tmp_path):
+        site = tmp_path / "venv" / "lib" / "python3.12" / "site-packages"
+        write(site, "pkg-0.1.dist-info/direct_url.json",
+              '{"url": "file:///home/me/clone", "dir_info": {"editable": true}}')
+        write(site, "other-1.0.dist-info/direct_url.json", '{"url": "https://files.example/x.whl"}')
+        env.unlink_editable(tmp_path / "venv")
+        assert not (site / "pkg-0.1.dist-info" / "direct_url.json").exists()
+        assert (site / "other-1.0.dist-info" / "direct_url.json").exists()

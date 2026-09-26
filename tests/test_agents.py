@@ -152,3 +152,20 @@ class TestIsolatedWorkspace:
             assert validate.git(ws.tree, "rev-parse", "HEAD").strip() == task["parent"]
         finally:
             ws.close()
+
+
+def test_workspace_path_does_not_name_the_fix_commit(monkeypatch, tmp_path):
+    # The task id is the fix commit; an agent with a shell can run pwd.
+    from groundhog import run
+
+    prefixes = []
+
+    def mkdtemp(prefix=""):
+        prefixes.append(prefix)
+        raise RuntimeError("stop after naming")
+
+    monkeypatch.setattr(run.tempfile, "mkdtemp", mkdtemp)
+    task = {"sha": "b90faad1c0ffee", "parent": "a" * 40, "test_files": [], "source_files": []}
+    with pytest.raises(RuntimeError):
+        run.Workspace(tmp_path, task, None, "true", 10, isolated=True)
+    assert prefixes and "b90faad1" not in prefixes[0]

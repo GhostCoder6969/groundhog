@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -491,7 +492,11 @@ def main() -> int:
     ap.add_argument("--json", type=Path, metavar="FILE",
                     help="also write the summarised rows as JSON (- for stdout)")
     ap.add_argument("--title", default="", help="heading for the Markdown report")
+    ap.add_argument("--no-color", action="store_true", help="plain text; also honours NO_COLOR")
     cfg = ap.parse_args()
+    if cfg.no_color or os.environ.get("NO_COLOR"):
+        global BOLD, DIM, GREEN, RED, RESET, YELLOW
+        BOLD = DIM = GREEN = RED = RESET = YELLOW = ""
 
     if not cfg.results.exists():
         print(f"no results at {cfg.results}")

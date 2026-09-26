@@ -153,7 +153,9 @@ class Workspace:
         self.task = task
         self.venv = venv
         self.timeout = timeout
-        self.tmp = Path(tempfile.mkdtemp(prefix=f"groundhog-run-{task['sha'][:8]}-"))
+        # No task id in the name: the id is the fix commit, and an agent with a
+        # shell can read its own path.
+        self.tmp = Path(tempfile.mkdtemp(prefix="groundhog-run-"))
         self.tree = self.tmp / "repo"
         self.test_files = set(task["test_files"])
         from .validate import test_targets

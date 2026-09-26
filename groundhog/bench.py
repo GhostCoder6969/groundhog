@@ -165,7 +165,8 @@ def main() -> int:
     code = step("4. Report",
                 [*py, "report", "--results", str(results), "--tasks", str(tasks),
                  "--repo", cfg.repo.name, "--markdown", str(out / "report.md"),
-                 "--site", str(out / "index.html"), "--title", f"Groundhog: {cfg.repo.name}"], colour)
+                 "--site", str(out / "index.html"), "--title", f"Groundhog: {cfg.repo.name}",
+                 *([] if colour else ["--no-color"])], colour)
     subprocess.run([*py, "badge", "--results", str(results), "--out", str(out / "badge.json")],
                    capture_output=True)
     say(f"\n{d}everything is under {out}/: tasks.jsonl (pin this), results.jsonl, "
