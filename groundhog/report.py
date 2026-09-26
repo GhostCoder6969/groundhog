@@ -227,12 +227,18 @@ def print_table(rows: list[dict], records: list[dict]) -> None:
     ranked = [r for r in rows if not r["unmeasured"]]
     if len(ranked) >= 2 and ranked[0]["ci_low"] < ranked[1]["ci_high"]:
         rows_ = ranked
-        need = tasks_needed(rows_[1]["pass_rate"], max(0.01, rows_[0]["pass_rate"] - rows_[1]["pass_rate"]))
-        print(
-            f"\n{DIM}  The top two intervals overlap — this ordering is not a result. "
-            f"Separating them\n  would need roughly {need} tasks (you have {rows[0]['total']}), "
-            f"or use `groundhog compare`\n  for a paired test, which needs far fewer.{RESET}"
-        )
+        if rows_[0]["pass_rate"] == rows_[1]["pass_rate"]:
+            # No observed difference, so there is no sample size to estimate.
+            print(
+                f"\n{DIM}  The top two scored the same — this ordering is not a result.{RESET}"
+            )
+        else:
+            need = tasks_needed(rows_[1]["pass_rate"], max(0.01, rows_[0]["pass_rate"] - rows_[1]["pass_rate"]))
+            print(
+                f"\n{DIM}  The top two intervals overlap — this ordering is not a result. "
+                f"Separating them\n  would need roughly {need} tasks (you have {rows[0]['total']}), "
+                f"or use `groundhog compare`\n  for a paired test, which needs far fewer.{RESET}"
+            )
 
     tasks = sorted({r["task_id"]: r["subject"] for r in records}.items())
     models = [r["model"] for r in rows]
