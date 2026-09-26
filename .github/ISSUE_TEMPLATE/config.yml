@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Share your results
+    url: https://github.com/abhinavsv3/groundhog/discussions/categories/show-and-tell
+    about: Ran Groundhog on your repo? Post the report.md and tell us what surprised you.
+  - name: Ask a question
+    url: https://github.com/abhinavsv3/groundhog/discussions/categories/q-a
+    about: Setup, environments, "why was my task rejected", anything that is not a bug.

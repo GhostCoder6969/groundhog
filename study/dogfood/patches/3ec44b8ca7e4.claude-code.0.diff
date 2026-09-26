@@ -1,0 +1,114 @@
+diff --git a/groundhog/run.py b/groundhog/run.py
+index 94db337..838a256 100644
+--- a/groundhog/run.py
++++ b/groundhog/run.py
+@@ -12,6 +12,7 @@ from __future__ import annotations
+ import argparse
+ import json
+ import hashlib
++import random
+ import shutil
+ import subprocess
+ import sys
+@@ -41,6 +42,34 @@ Rules:
+ MAX_FILE_BYTES = 120_000
+ 
+ 
++def system_prompt(cfg: argparse.Namespace) -> str:
++    """The system prompt this run is configured with, default or overridden."""
++    return getattr(cfg, "system_prompt_text", None) or SYSTEM
++
++
++def prompt_fingerprint(text: str) -> str:
++    """Short digest of a prompt, recorded on every attempt.
++
++    A prompt ablation produces results files that are otherwise identical --
++    same repo, same tasks, same model -- and nothing in a row says which
++    wording produced it. Twelve hex characters is enough to group and compare
++    them months later, when the prompt itself has moved on.
++    """
++    return hashlib.sha256(text.encode()).hexdigest()[:12]
++
++
++def sample_tasks(tasks: list[dict], count: int, seed: int) -> list[dict]:
++    """A reproducible subset: same seed and same corpus, same tasks.
++
++    Sorted by sha first, so the draw does not depend on the order the mining
++    step happened to write the file in.
++    """
++    if count <= 0 or count >= len(tasks):
++        return tasks
++    ordered = sorted(tasks, key=lambda t: t.get("sha", ""))
++    return random.Random(seed).sample(ordered, count)
++
++
+ @dataclass
+ class ToolStats:
+     """How an attempt went, not just whether it succeeded.
+@@ -88,6 +117,7 @@ class Attempt:
+     cost_usd: float | None = None
+     nudges: int = 0
+     agent: str = "builtin"
++    prompt_hash: str = ""   # which system prompt this attempt ran under
+     broke_pass_to_pass: int = 0
+     fail_to_pass_passed: bool = False  # would a FAIL_TO_PASS-only harness call this solved?
+     p2p_scope: str = "file"
+@@ -424,6 +454,8 @@ def finish(record: Attempt, ws: "Workspace", started: float,
+ 
+ def attempt(repo: Path, task: dict, model: str, cfg: argparse.Namespace, run_index: int = 0) -> Attempt:
+     record = Attempt(repo=repo.name, task_id=task["sha"][:12], subject=task["subject"], model=model, run_index=run_index)
++    prompt = system_prompt(cfg)
++    record.prompt_hash = prompt_fingerprint(prompt)
+     started = time.monotonic()
+     solved = False
+     ws = Workspace(repo, task, cfg.venv, cfg.test_cmd, cfg.timeout)
+@@ -450,7 +482,7 @@ def attempt(repo: Path, task: dict, model: str, cfg: argparse.Namespace, run_ind
+ 
+     try:
+         _, failure = ws.run_tests()
+-        chat = connect(model, SYSTEM)
++        chat = connect(model, prompt)
+         chat.say(
+             f"Repository: {repo.name}\n"
+             f"Tests that must pass: {', '.join(task['test_files'])}\n\n"
+@@ -535,6 +567,12 @@ def main() -> int:
+     ap.add_argument("--max-spend", type=float, default=None,
+                     help="stop cleanly once cumulative cost would exceed this (USD)")
+     ap.add_argument("--limit", type=int, default=0)
++    ap.add_argument("--sample", type=int, default=0,
++                    help="run a reproducible random subset of the tasks (see --seed)")
++    ap.add_argument("--seed", type=int, default=0, help="seed for --sample")
++    ap.add_argument("--system-prompt", type=Path, default=None,
++                    help="file holding a system prompt to replace the built-in one "
++                         "(built-in loop only); its hash is recorded on every row")
+     ap.add_argument("--repeats", type=int, default=1,
+                     help="attempts per task; >1 is required for any claim about a small effect")
+     if "--list-agents" in sys.argv:
+@@ -549,6 +587,17 @@ def main() -> int:
+         return 0
+     cfg = ap.parse_args()
+ 
++    # An external agent brings its own prompt; ours never reaches it. Swapping
++    # the text here and recording a different prompt_hash would label rows by a
++    # prompt that had no effect, so refuse rather than mislead.
++    cfg.system_prompt_text = None
++    if cfg.system_prompt:
++        if cfg.agent or cfg.agent_cmd:
++            ap.error("--system-prompt only affects the built-in loop; an external "
++                     "agent has its own. Drop --agent/--agent-cmd, or put the "
++                     "wording in the agent's own prompt.")
++        cfg.system_prompt_text = cfg.system_prompt.read_text()
++
+     if cfg.agent:
+         try:
+             cfg.agent_cmd = preset(cfg.agent).command
+@@ -572,6 +621,9 @@ def main() -> int:
+     tasks = [json.loads(l) for l in cfg.tasks.read_text().splitlines() if l.strip()]
+     if cfg.limit:
+         tasks = tasks[: cfg.limit]
++    if cfg.sample:
++        tasks = sample_tasks(tasks, cfg.sample, cfg.seed)
++        print(f"sampled {len(tasks)} tasks with seed {cfg.seed}", file=sys.stderr)
+     models = [m.strip() for m in cfg.models.split(",") if m.strip()]
+     if not tasks:
+         print("no tasks -- run mine and validate first", file=sys.stderr)

@@ -36,22 +36,20 @@ download and nothing to mock. They should run in under ten seconds.
 
 ## Ways in, roughly by difficulty
 
-**Add a model provider** (easy). Subclass `Provider` in `models.py` with three
-methods: `say`, `reply`, `give_results`. Anything OpenAI-compatible already works
-via `GROUNDHOG_OPENAI_BASE_URL`, so this is only for genuinely different wire
-formats.
+**Add a model provider** (easy). Anything OpenAI-compatible is one line in
+the `HOSTS` table in `models.py`: name, base URL, key variable. Anthropic is
+the worked example of a genuinely different wire format, if you need one.
 
-**Add a language** (medium, most wanted). `mine.py` already recognises test files
-for Go, Rust, TS and JS. What is missing is validation: a way to install
-dependencies and run a subset of tests for that ecosystem. Start with
-`source_roots()` in `validate.py` and the `--test-cmd` default.
+**Add a language** (medium, most wanted). Python, Go, JavaScript and Rust
+are supported; Java, Ruby and C# have issues open (52 to 54). A language is
+three things: detection in `environment.py`, a per-test outcome parser in
+`validate.py`, and how test files map to runner targets. Rust (commit
+95d8b36) is the smallest worked example, and its issue (31) still needs
+someone with cargo to validate a real crate.
 
-**Report on how an agent worked, not just whether it did** (medium, most
-interesting). `--agent-cmd` already runs any external agent against a prepared
-worktree. What is missing is instrumentation: which tools were called, how often
-a call errored, how many turns before the first edit. Those have thousands of
-samples per run where solve rate has dozens, so they can detect effects a pass
-rate never will. See [#9].
+**Read an external agent's cost** (medium, issue 47). Claude Code and Codex
+print tokens and dollars in their structured output; the COST column is
+empty for every `--agent` run because nobody parses it yet.
 
 **Extend environment inference** (hard, high impact). `environment.py` handles
 Python projects — extras, PEP 735 dependency groups, `requirements*.txt` — and
@@ -60,6 +58,27 @@ dependencies or unusual build systems, which still need `--venv` and
 `--test-cmd`. Two traps worth knowing: dependency groups are *not* extras
 (`pip install '.[tests]'` exits 0 having installed nothing), and the venv cache
 key must include the install plan or your improvement silently won't apply.
+
+## Ten-minute contributions
+
+Three things need no design discussion and help the most:
+
+- **Verify an agent preset.** `groundhog run --list-agents` shows which are
+  marked verified. Each unverified one has an issue with the four commands to
+  run (issues 39 to 45). A pasted result record and a one-line PR flipping
+  `verified=True` is the whole contribution.
+- **Post a bench result.** Run `groundhog bench` on any repo and paste
+  `report.md` in the
+  [Show and tell discussion](https://github.com/abhinavsv3/groundhog/discussions/55).
+  Private repos are welcome unnamed. Surprising collateral columns are the
+  most useful thing anyone can send.
+- **Run the demo on Windows** and say what breaks (issue 51). The CLI is
+  known to run there; the test suite has eight Windows-specific failures
+  nobody has looked at.
+
+Issue templates exist for bugs, features, preset verification and new
+languages; they ask for `groundhog doctor` output and the exact command, which
+answers most questions before anyone has to ask them.
 
 ## What makes a good pull request
 

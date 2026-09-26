@@ -1,0 +1,238 @@
+commit b485405a0b7ab4f000cee26771cceed11c079620
+Author: Abhinav S V <abhinavsv3@gmail.com>
+Date:   Fri Sep 25 22:46:13 2026 -0700
+
+    report --markdown and --json, and a badge command for READMEs
+    
+    The report was an ANSI table. The place people want to put a result is
+    a pull request comment or a README, where escape codes are garbage.
+    
+    --markdown writes the model table, the F2P-only comparison and a
+    collapsed per-task grid as GitHub Markdown; --json writes the summarised
+    rows. Either takes - for stdout, in which case the terminal table stays
+    off it so the output is the artifact.
+    
+    groundhog badge writes a shields.io endpoint file:
+    
+      ![agent pass rate](https://img.shields.io/endpoint?url=.../badge.json)
+    
+    It refuses to show a number for a model the harness could not read. A
+    percentage in a README is the most context-free place a number can
+    live, and a wrong one lives there forever.
+    
+    Closes #28
+    
+    Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+diff --git a/groundhog/__main__.py b/groundhog/__main__.py
+index 041d454..67db6aa 100644
+--- a/groundhog/__main__.py
++++ b/groundhog/__main__.py
+@@ -10,7 +10,8 @@ USAGE = """groundhog -- replay your git history as a regression test for coding
+   groundhog mine     <repo>   find commits that changed source and tests together
+   groundhog validate <repo>   keep only the ones that fail without the fix
+   groundhog run      <repo>   run agents against the validated tasks
+-  groundhog report            print the table and build the leaderboard page
++  groundhog report            print the table; --markdown / --json / --site for other forms
++  groundhog badge             write a shields.io badge JSON from a results file
+   groundhog compare  <a> <b>  paired comparison of two runs, for CI and ablations
+   groundhog export   <repo>   write validated tasks in SWE-bench instance format
+   groundhog demo              see all of the above run end to end, no API key needed
+@@ -37,6 +38,8 @@ def main() -> int:
+         from .compare import main as run_it
+     elif command == "export":
+         from .export import main as run_it
++    elif command == "badge":
++        from .badge import main as run_it
+     elif command == "demo":
+         from .demo import main as run_it
+     else:
+diff --git a/groundhog/badge.py b/groundhog/badge.py
+new file mode 100644
+index 0000000..9fb0b21
+--- /dev/null
++++ b/groundhog/badge.py
+@@ -0,0 +1,73 @@
++#!/usr/bin/env python3
++"""A shields.io endpoint badge for a results file.
++
++    groundhog badge --results results/results.jsonl --out badge.json
++
++Commit badge.json (or publish it on Pages) and put this in the README:
++
++    ![agent pass rate](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OWNER/REPO/main/badge.json)
++
++The badge refuses to show a number for a model the harness could not read,
++for the same reason the report does: a percentage in a README is the most
++context-free place a number can live, and a wrong one lives there forever.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import sys
++from pathlib import Path
++
++from .report import summarise
++
++
++def colour(rate: float) -> str:
++    if rate >= 0.7:
++        return "brightgreen"
++    if rate >= 0.5:
++        return "green"
++    if rate >= 0.3:
++        return "yellow"
++    if rate >= 0.15:
++        return "orange"
++    return "red"
++
++
++def badge(rows: list[dict], model: str | None, label: str) -> dict:
++    """The shields endpoint schema: schemaVersion, label, message, color."""
++    usable = [r for r in rows if not r["unmeasured"]]
++    if model:
++        usable = [r for r in usable if r["model"] == model or r["model"].endswith(":" + model)]
++    if not usable:
++        return {"schemaVersion": 1, "label": label, "message": "not measured", "color": "lightgrey",
++                "isError": True}
++    best = usable[0]
++    message = f"{best['pass_rate'] * 100:.0f}% ({best['solved']}/{best['total']})"
++    if len(usable) > 1 and not model:
++        message += f" · {best['model'].split(':', 1)[-1]}"
++    return {"schemaVersion": 1, "label": label, "message": message,
++            "color": colour(best["pass_rate"])}
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
++    ap.add_argument("--results", type=Path, default=Path("results/results.jsonl"))
++    ap.add_argument("--out", type=Path, default=Path("badge.json"))
++    ap.add_argument("--model", help="one model's rate; default is the best measured model")
++    ap.add_argument("--label", default="agent pass rate")
++    cfg = ap.parse_args()
++
++    if not cfg.results.exists():
++        print(f"no results at {cfg.results}", file=sys.stderr)
++        return 1
++    records = [json.loads(l) for l in cfg.results.read_text().splitlines() if l.strip()]
++    payload = badge(summarise(records), cfg.model, cfg.label)
++    cfg.out.parent.mkdir(parents=True, exist_ok=True)
++    cfg.out.write_text(json.dumps(payload, indent=2) + "\n")
++    print(f"{payload['label']}: {payload['message']} -> {cfg.out}", file=sys.stderr)
++    return 0 if not payload.get("isError") else 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/groundhog/report.py b/groundhog/report.py
+index 89f33f5..1677159 100644
+--- a/groundhog/report.py
++++ b/groundhog/report.py
+@@ -285,6 +285,69 @@ def overstatement(rows: list[dict]) -> None:
+           f"Patches are in results/patches/.{RESET}")
+ 
+ 
++def markdown(rows: list[dict], records: list[dict], title: str = "") -> str:
++    """The report as GitHub-flavoured Markdown, for PR comments and READMEs.
++
++    No colour codes, no alignment padding: the place people want to put a
++    result is a pull request, and a terminal table pasted there is garbage.
++    """
++    lines: list[str] = []
++    if title:
++        lines += [f"### {title}", ""]
++    if not rows:
++        return "\n".join(lines + ["_no results_", ""])
++
++    lines += ["| Model | Solved | Pass rate | 95% CI | F2P-only | Collateral | Cost | Median |",
++              "|---|---:|---:|---|---:|---|---:|---:|"]
++    for r in rows:
++        if r["unmeasured"]:
++            lines.append(
++                f"| {r['model']} | {r['solved']}/{r['total']} | _not measured_ | — | — | — | — "
++                f"| {r['median_seconds']:.0f}s |"
++            )
++            continue
++        gap = r["f2p_only_solved"] - r["solved"]
++        f2p = f"{r['f2p_only_solved']}/{r['total']}" + (
++            f" (+{gap / r['total'] * 100:.0f}pts)" if gap > 0 else "")
++        collateral = (f"{r['collateral_attempts']} broke {r['collateral_tests_broken']}"
++                      if r["collateral_attempts"] else "0")
++        lines.append(
++            f"| {r['model']} | {r['solved']}/{r['total']} | {r['pass_rate'] * 100:.0f}% "
++            f"| {r['ci_low'] * 100:.0f}% – {r['ci_high'] * 100:.0f}% | {f2p} | {collateral} "
++            f"| {money(r['cost'])} | {r['median_seconds']:.0f}s |"
++        )
++
++    silent = [r for r in rows if r["unmeasured"]]
++    for r in silent:
++        lines += ["", f"> **{r['model']}**: {r['silent']} of {r['total']} attempts parsed no tool "
++                      f"call. That is a failed measurement, not a 0% score; it is excluded."]
++
++    ranked = [r for r in rows if not r["unmeasured"]]
++    if len(ranked) >= 2 and ranked[0]["ci_low"] < ranked[1]["ci_high"]:
++        lines += ["", "> The top two confidence intervals overlap; this ordering is not a result."]
++    if any(r["f2p_only_solved"] > r["solved"] for r in ranked):
++        lines += ["", "> **F2P-only** is what a harness that checks only the target tests would "
++                      "report. **Pass rate** also requires every previously-passing test to still "
++                      "pass and the test files to be untouched. The gap is agents that did the "
++                      "task and broke something else doing it."]
++
++    tasks = sorted({r["task_id"]: r["subject"] for r in records}.items())
++    models = [r["model"] for r in rows]
++    unmeasured = {r["model"] for r in rows if r["unmeasured"]}
++    lookup = {(r["model"], r["task_id"]): r["solved"] for r in records}
++    lines += ["", "<details><summary>Per task</summary>", "",
++              "| Task | " + " | ".join(label(m) for m in models) + " |",
++              "|---|" + "|".join(":---:" for _ in models) + "|"]
++    for task_id, subject in tasks:
++        cells = []
++        for m in models:
++            ok = lookup.get((m, task_id))
++            cells.append("—" if m in unmeasured or ok is None else ("✅" if ok else "❌"))
++        lines.append(f"| {subject.replace('|', chr(92) + '|')[:60]} | " + " | ".join(cells) + " |")
++    lines += ["", "</details>", ""]
++    return "\n".join(lines)
++
++
+ def write_site(rows: list[dict], records: list[dict], repo: str, out: Path, template: Path) -> None:
+     payload = {
+         "repo": repo,
+@@ -405,6 +468,11 @@ def main() -> int:
+     ap.add_argument("--tasks", type=Path, help="validated tasks, for the change-shape breakdown")
+     ap.add_argument("--cutoff", action="append", default=[], metavar="NAME=YYYY-MM-DD",
+                     help="training cutoff for a model, for the contamination split")
++    ap.add_argument("--markdown", type=Path, metavar="FILE",
++                    help="also write the report as GitHub Markdown (- for stdout)")
++    ap.add_argument("--json", type=Path, metavar="FILE",
++                    help="also write the summarised rows as JSON (- for stdout)")
++    ap.add_argument("--title", default="", help="heading for the Markdown report")
+     cfg = ap.parse_args()
+ 
+     if not cfg.results.exists():
+@@ -412,8 +480,23 @@ def main() -> int:
+         return 1
+     records = [json.loads(l) for l in cfg.results.read_text().splitlines() if l.strip()]
+     rows = summarise(records)
++    if cfg.markdown == Path("-") or cfg.json == Path("-"):
++        # stdout is the artifact; keep the terminal table off it.
++        if cfg.markdown == Path("-"):
++            print(markdown(rows, records, cfg.title))
++        if cfg.json == Path("-"):
++            print(json.dumps(rows, indent=2))
++        return 0
+     print_table(rows, records)
+     overstatement(rows)
++    if cfg.markdown:
++        cfg.markdown.parent.mkdir(parents=True, exist_ok=True)
++        cfg.markdown.write_text(markdown(rows, records, cfg.title))
++        print(f"wrote {cfg.markdown}")
++    if cfg.json:
++        cfg.json.parent.mkdir(parents=True, exist_ok=True)
++        cfg.json.write_text(json.dumps(rows, indent=2))
++        print(f"wrote {cfg.json}")
+ 
+     if cfg.tasks and cfg.tasks.exists():
+         tasks = {}

@@ -1,0 +1,42 @@
+name: Bug report
+description: Something did not work, or a number looks wrong
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran and what it printed. Paste, do not paraphrase.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: groundhog doctor
+      description: Paste the output of `groundhog doctor --no-color`. It answers most environment questions up front.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: groundhog --version
+      placeholder: groundhog 0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: Repository language
+      options: [Python, Go, JavaScript / TypeScript, Rust, Other]
+  - type: textarea
+    id: task
+    attributes:
+      label: If a task or attempt is involved
+      description: Output of `groundhog show <task-id>` if you have one, or the validate line for the task.
+      render: shell

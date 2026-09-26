@@ -1,0 +1,302 @@
+diff --git a/README.md b/README.md
+index a72b5bc..0f5de44 100644
+--- a/README.md
++++ b/README.md
+@@ -154,9 +154,19 @@ cd groundhog && pip install -e .
+ No runtime dependencies. Everything is stdlib, because every dependency is another
+ way a benchmark run dies on somebody's laptop.
+ 
++```bash
++python -m groundhog doctor
++```
++
++One screen: git, the interpreter, the build cache, which model providers have a
++key exported, whether a local Ollama is answering, and which `--agent` binaries
++are on PATH — each with the command that fixes it. Nothing but a missing git is
++fatal; `groundhog demo` needs none of it.
++
+ ## Usage
+ 
+ ```bash
++python -m groundhog doctor                  # what works here, and what to install
+ python -m groundhog mine     /path/to/repo --since "6 months ago"
+ python -m groundhog validate /path/to/repo
+ python -m groundhog run      /path/to/repo --models anthropic:claude-opus-5,openai:gpt-5.2
+diff --git a/groundhog/__main__.py b/groundhog/__main__.py
+index 670bb11..4703d6e 100644
+--- a/groundhog/__main__.py
++++ b/groundhog/__main__.py
+@@ -16,6 +16,7 @@ USAGE = """groundhog -- replay your git history as a regression test for coding
+   groundhog compare  <a> <b>  paired comparison of two runs, for CI and ablations
+   groundhog export   <repo>   write validated tasks in SWE-bench instance format
+   groundhog demo              see all of the above run end to end, no API key needed
++  groundhog doctor            what works on this machine, and what to install
+ 
+ Each command takes --help.
+ """
+@@ -45,6 +46,8 @@ def main() -> int:
+         from .show import main as run_it
+     elif command == "demo":
+         from .demo import main as run_it
++    elif command == "doctor":
++        from .doctor import main as run_it
+     else:
+         print(f"unknown command {command!r}\n\n{USAGE}", file=sys.stderr)
+         return 2
+diff --git a/groundhog/doctor.py b/groundhog/doctor.py
+new file mode 100644
+index 0000000..d673e04
+--- /dev/null
++++ b/groundhog/doctor.py
+@@ -0,0 +1,251 @@
++#!/usr/bin/env python3
++"""One screen that says what works here and what to install.
++
++    groundhog doctor
++
++Groundhog has no runtime dependencies, so the things that go wrong are all
++outside it: git is missing, the local model server is not running, the key for
++the provider you asked for is not exported, the agent binary behind `--agent`
++is not on PATH. Each of those surfaces as a different error, at a different
++point, sometimes twenty minutes into a run. Doctor asks all of the questions up
++front and prints the answer next to the command that fixes it.
++
++Nothing here is fatal except a missing git or an interpreter Groundhog cannot
++run on: a key you have not set is only a provider you cannot use today, and
++`groundhog demo` needs none of them.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++import os
++import re
++import shutil
++import subprocess
++import sys
++import urllib.request
++from typing import NamedTuple
++
++from .agents import PRESETS
++from .environment import cache_root
++from .models import HOSTS, base_url_for
++
++GREEN, YELLOW, RED, DIM, BOLD, RESET = (
++    "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[1m", "\033[0m",
++)
++
++MIN_PYTHON = (3, 10)
++
++# Status -> how to paint it. Anything unlisted is left plain.
++PAINT = {
++    "ok": GREEN, "set": GREEN, "running": GREEN, "installed": GREEN,
++    "missing": RED, "too old": RED, "unwritable": RED,
++    "not set": DIM, "not installed": DIM, "not running": YELLOW, "empty": DIM,
++}
++
++
++class Row(NamedTuple):
++    """One line of the report: what was checked, what we found, what to do."""
++
++    label: str
++    status: str
++    hint: str = ""
++    group: str = ""
++
++
++def paint(status: str, colour: bool) -> str:
++    return f"{PAINT[status]}{status}{RESET}" if colour and status in PAINT else status
++
++
++def plain(text: str) -> str:
++    """The text without the paint, so alignment and logic can use its length."""
++    return re.sub(r"\033\[[0-9;]*m", "", text)
++
++
++def probe(url: str, timeout: float = 2.0) -> bool:
++    try:
++        with urllib.request.urlopen(url, timeout=timeout):
++            return True
++    except Exception:
++        return False
++
++
++def check_git() -> Row:
++    binary = shutil.which("git")
++    if binary is None:
++        return Row("git", "missing", "https://git-scm.com/downloads", "core")
++    try:
++        version = subprocess.run([binary, "--version"], capture_output=True, text=True,
++                                 timeout=10).stdout.strip()
++    except Exception:
++        version = binary
++    return Row("git", "ok", version, "core")
++
++
++def check_python() -> Row:
++    version = ".".join(str(n) for n in sys.version_info[:3])
++    if sys.version_info < MIN_PYTHON:
++        need = ".".join(str(n) for n in MIN_PYTHON)
++        return Row("python", "too old", f"{version}; groundhog needs {need} or newer", "core")
++    return Row("python", "ok", f"{version} at {sys.executable}", "core")
++
++
++def check_cache() -> Row:
++    """Where built virtualenvs live, and whether we may write there."""
++    root = cache_root()
++    existing = root
++    while not existing.exists() and existing != existing.parent:
++        existing = existing.parent
++    if not os.access(existing, os.W_OK):
++        return Row("cache", "unwritable", f"{root}; set GROUNDHOG_CACHE to a writable path", "core")
++    if not root.exists():
++        return Row("cache", "empty", f"{root} (built on first run)", "core")
++    builds = [p for p in root.iterdir() if p.is_dir()]
++    return Row("cache", "ok", f"{root} ({len(builds)} built)", "core")
++
++
++def check_local_servers() -> list[Row]:
++    """Local model servers, which cost nothing and need no key -- when running."""
++    rows = []
++    for name in ("ollama", "vllm", "lmstudio", "llamacpp"):
++        host = HOSTS[name]
++        url = base_url_for(host)
++        override = os.environ.get(f"GROUNDHOG_{name.upper()}_BASE_URL")
++        if name != "ollama" and not override:
++            # Only ollama is common enough to be worth a line when unconfigured.
++            continue
++        endpoint = url.rsplit("/v1", 1)[0] + ("/api/tags" if name == "ollama" else "/v1/models")
++        if probe(endpoint):
++            rows.append(Row(name, "running", f"{url} -- try --models {name}:qwen3:8b", "models"))
++        else:
++            start = "start it with `ollama serve`" if name == "ollama" else "start the server"
++            rows.append(Row(name, "not running", f"{start}, or point "
++                                                 f"GROUNDHOG_{name.upper()}_BASE_URL at it", "models"))
++    return rows
++
++
++def check_keys() -> list[Row]:
++    """One line per hosted provider: is its key exported, and where to get one."""
++    rows = [Row("ANTHROPIC_API_KEY", "set" if os.environ.get("ANTHROPIC_API_KEY") else "not set",
++                "" if os.environ.get("ANTHROPIC_API_KEY") else "https://console.anthropic.com/settings/keys",
++                "models")]
++    for host in HOSTS.values():
++        if not host.key_required or not host.key_var:
++            continue
++        if host.key():
++            rows.append(Row(host.key_var, "set", f"{host.name}: {base_url_for(host)}", "models"))
++        else:
++            rows.append(Row(host.key_var, "not set", host.signup, "models"))
++    return rows
++
++
++def check_agents() -> list[Row]:
++    """The external agents `--agent` knows about, and how to install them."""
++    rows = []
++    for name, p in PRESETS.items():
++        binary = shutil.which(p.binary)
++        if binary:
++            rows.append(Row(f"agent {name}", "installed", binary, "agents"))
++        else:
++            rows.append(Row(f"agent {name}", "not installed", p.install, "agents"))
++    return rows
++
++
++def checks(colour: bool = True) -> tuple[list[Row], bool]:
++    """Every check, in print order, plus whether anything found is fatal.
++
++    Fatal means Groundhog cannot do its own job -- mine and validate tasks.
++    A missing key or agent is not fatal; it is a column of the report you
++    cannot fill in today.
++    """
++    rows = [check_git(), check_python()]
++    for tool, why in (("node", "javascript repos"), ("go", "go repos")):
++        found = shutil.which(tool)
++        rows.append(Row(tool, "ok" if found else "missing",
++                        found or f"not needed unless you mine {why}", "core"))
++    rows.append(check_cache())
++    rows += check_local_servers()
++    rows += check_keys()
++    rows += check_agents()
++
++    fatal = any(r.label in ("git", "python") and r.status in ("missing", "too old") for r in rows)
++    if colour:
++        rows = [r._replace(status=paint(r.status, True)) for r in rows]
++    return rows, fatal
++
++
++GROUP_TITLES = {
++    "core": "groundhog itself",
++    "models": "models -- for `groundhog run` with the built-in agent",
++    "agents": "agents -- for `groundhog run --agent <name>`",
++}
++
++
++def render(rows: list[Row], colour: bool) -> str:
++    b, d, r = (BOLD, DIM, RESET) if colour else ("", "", "")
++    width = max(len(row.label) for row in rows) + 2
++    status_width = max(len(plain(row.status)) for row in rows) + 2
++    out: list[str] = []
++    group = None
++    for row in rows:
++        if row.group != group:
++            group = row.group
++            out += ["", f"{b}{GROUP_TITLES.get(group, group)}{r}"]
++        pad = " " * max(status_width - len(plain(row.status)), 1)
++        line = f"  {row.label:<{width}}{row.status}{pad}"
++        out.append(f"{line}{d}{row.hint}{r}".rstrip() if row.hint else line.rstrip())
++    return "\n".join(out)
++
++
++def advice(rows: list[Row], fatal: bool) -> list[str]:
++    """The one or two sentences worth reading after the table."""
++    status = {row.label: plain(row.status) for row in rows}
++    if fatal:
++        return ["groundhog cannot run here until the red lines above are fixed."]
++    said = []
++    keys = [k for k, v in status.items() if k.endswith("_API_KEY") and v == "set"]
++    local = [k for k in ("ollama", "vllm", "lmstudio", "llamacpp") if status.get(k) == "running"]
++    agents = [k for k, v in status.items() if k.startswith("agent ") and v == "installed"]
++    said.append("mine and validate: ready -- no key needed.")
++    if keys or local:
++        have = ", ".join(local + keys)
++        said.append(f"run with the built-in agent: ready ({have}).")
++    else:
++        said.append("run with the built-in agent: needs a key above, or `ollama serve` "
++                    "for a local model.")
++    if agents:
++        said.append(f"run --agent: {', '.join(a.split(' ', 1)[1] for a in agents)}.")
++    said.append("`groundhog demo` runs end to end with none of the above.")
++    return said
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser(description=__doc__,
++                                 formatter_class=argparse.RawDescriptionHelpFormatter)
++    ap.add_argument("--color", choices=("auto", "always", "never"), default="auto")
++    ap.add_argument("--no-color", dest="color", action="store_const", const="never",
++                    help="same as --color never")
++    ap.add_argument("--json", action="store_true", help="the same checks, machine readable")
++    cfg = ap.parse_args()
++
++    colour = cfg.color == "always" or (cfg.color == "auto" and sys.stdout.isatty()
++                                       and not os.environ.get("NO_COLOR"))
++    if cfg.json:
++        colour = False
++
++    rows, fatal = checks(colour=colour)
++    if cfg.json:
++        print(json.dumps({"ok": not fatal,
++                          "checks": [row._asdict() for row in rows]}, indent=2))
++        return 1 if fatal else 0
++
++    print(render(rows, colour))
++    print()
++    for line in advice(rows, fatal):
++        print(line)
++    return 1 if fatal else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

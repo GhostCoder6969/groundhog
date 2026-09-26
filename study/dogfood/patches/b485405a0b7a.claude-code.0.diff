@@ -1,0 +1,231 @@
+diff --git a/groundhog/__main__.py b/groundhog/__main__.py
+index 041d454..7b5dea5 100644
+--- a/groundhog/__main__.py
++++ b/groundhog/__main__.py
+@@ -11,6 +11,7 @@ USAGE = """groundhog -- replay your git history as a regression test for coding
+   groundhog validate <repo>   keep only the ones that fail without the fix
+   groundhog run      <repo>   run agents against the validated tasks
+   groundhog report            print the table and build the leaderboard page
++  groundhog badge             write a shields.io badge for the best measured model
+   groundhog compare  <a> <b>  paired comparison of two runs, for CI and ablations
+   groundhog export   <repo>   write validated tasks in SWE-bench instance format
+   groundhog demo              see all of the above run end to end, no API key needed
+@@ -33,6 +34,8 @@ def main() -> int:
+         from .run import main as run_it
+     elif command == "report":
+         from .report import main as run_it
++    elif command == "badge":
++        from .badge import main as run_it
+     elif command == "compare":
+         from .compare import main as run_it
+     elif command == "export":
+diff --git a/groundhog/badge.py b/groundhog/badge.py
+new file mode 100644
+index 0000000..58aa07c
+--- /dev/null
++++ b/groundhog/badge.py
+@@ -0,0 +1,80 @@
++#!/usr/bin/env python3
++"""A shields.io endpoint badge for a run, for a README or a CI job.
++
++A badge is one number seen out of context, so it is the easiest place in this
++tool to state something the run does not support. Two rules follow: a model
++the harness could not read gets no percentage, only "not measured"; and the
++number always carries its denominator, because 100% (1/1) is not a score.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++from pathlib import Path
++
++from .report import short, summarise
++
++# shields.io named colours, coarse on purpose -- a badge is not a measurement.
++BANDS = ((0.80, "brightgreen"), (0.50, "green"), (0.30, "yellow"), (0.10, "orange"))
++
++
++def colour(rate: float) -> str:
++    for floor, name in BANDS:
++        if rate >= floor:
++            return name
++    return "red"
++
++
++def badge(rows: list[dict], model: str | None = None,
++          label: str = "agent pass rate") -> dict:
++    """Render one row as a shields.io endpoint payload.
++
++    With no model, the best measured one is used and its name goes in the
++    message -- a badge that hides which model it describes invites the reader
++    to assume it is the one they care about.
++    """
++    out = {"schemaVersion": 1, "label": label}
++
++    if model:
++        picked = next((r for r in rows if r["model"] == model or short(r["model"]) == model), None)
++        if picked is None:
++            return {**out, "message": f"no results for {model}", "color": "lightgrey",
++                    "isError": True}
++        if picked["unmeasured"]:
++            return {**out, "message": "not measured", "color": "lightgrey", "isError": True}
++        return {**out, "message": f"{picked['pass_rate']:.0%} "
++                                  f"({picked['solved']}/{picked['total']})",
++                "color": colour(picked["pass_rate"])}
++
++    # summarise() already sorts measured rows first, best rate first.
++    measured = [r for r in rows if not r["unmeasured"]]
++    if not measured:
++        return {**out, "message": "not measured", "color": "lightgrey", "isError": True}
++    best = measured[0]
++    return {**out, "message": f"{best['pass_rate']:.0%} "
++                              f"({best['solved']}/{best['total']}) · {short(best['model'])}",
++            "color": colour(best["pass_rate"])}
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser(description=__doc__)
++    ap.add_argument("--results", type=Path, default=Path("results/results.jsonl"))
++    ap.add_argument("--out", type=Path, default=Path("results/badge.json"))
++    ap.add_argument("--model", help="badge this model rather than the best measured one")
++    ap.add_argument("--label", default="agent pass rate")
++    cfg = ap.parse_args()
++
++    if not cfg.results.exists():
++        print(f"no results at {cfg.results}")
++        return 1
++    records = [json.loads(l) for l in cfg.results.read_text().splitlines() if l.strip()]
++    payload = badge(summarise(records), cfg.model, cfg.label)
++    cfg.out.parent.mkdir(parents=True, exist_ok=True)
++    cfg.out.write_text(json.dumps(payload, indent=2) + "\n")
++    print(f"wrote {cfg.out}: {payload['message']}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/groundhog/report.py b/groundhog/report.py
+index 89f33f5..679e161 100644
+--- a/groundhog/report.py
++++ b/groundhog/report.py
+@@ -285,6 +285,93 @@ def overstatement(rows: list[dict]) -> None:
+           f"Patches are in results/patches/.{RESET}")
+ 
+ 
++def cell(text: str) -> str:
++    """Make a value safe to put in a Markdown table cell.
++
++    Commit subjects routinely contain a pipe, which would silently start a new
++    column and shift every mark in the row under the wrong model.
++    """
++    return str(text).replace("|", "\\|").replace("\n", " ")
++
++
++def markdown(rows: list[dict], records: list[dict], title: str = "Groundhog") -> str:
++    """The same report as `print_table`, as Markdown, with no escape codes.
++
++    This one goes somewhere a terminal is not: a PR comment, a CI job summary,
++    a README. It keeps the two refusals the table makes -- no percentage for a
++    model the harness could not read, and the F2P-only number never shown on
++    its own -- because those are the report, not decoration on it.
++    """
++    out = [f"### {title}", ""]
++    if not rows:
++        return "\n".join(out + ["No results.", ""])
++
++    out += ["| Model | Solved | Rate | 95% CI | Cost | Per solve | Median |",
++            "|---|---|---|---|---|---|---|"]
++    for r in rows:
++        if r["unmeasured"]:
++            out.append(f"| {cell(r['model'])} | {r['solved']}/{r['total']} | _not measured_ "
++                       f"| — | — | — | {r['median_seconds']:.0f}s |")
++            continue
++        band = f"{r['ci_low']:.0%} – {r['ci_high']:.0%}"
++        out.append(f"| {cell(r['model'])} | {r['solved']}/{r['total']} | {r['pass_rate']:.0%} "
++                   f"| {band} | {money(r['cost'])} | {money(r['cost_per_solve'])} "
++                   f"| {r['median_seconds']:.0f}s |")
++    out.append("")
++
++    for r in rows:
++        if r["unmeasured"]:
++            out += [f"> **{cell(r['model'])}**: {r['silent']} of {r['total']} attempts parsed "
++                    f"no tool call at all. That is a failed measurement, not a 0% score — the "
++                    f"model may be doing perfectly good work in a format this harness cannot "
++                    f"read. Widen the parser or exclude it before reporting anything about "
++                    f"this model.", ""]
++
++    ranked = [r for r in rows if not r["unmeasured"]]
++    if len(ranked) >= 2 and ranked[0]["ci_low"] < ranked[1]["ci_high"]:
++        need = tasks_needed(ranked[1]["pass_rate"],
++                            max(0.01, ranked[0]["pass_rate"] - ranked[1]["pass_rate"]))
++        out += [f"> The top two intervals overlap — this ordering is not a result. Separating "
++                f"them would need roughly {need} tasks (you have {ranked[0]['total']}), or a "
++                f"paired `groundhog compare`, which needs far fewer.", ""]
++
++    if any(r["f2p_only_solved"] > r["solved"] for r in ranked):
++        out += ["#### FAIL_TO_PASS-only vs true", "",
++                "| Model | F2P-only | True | Overstated | Collateral | Tests edited |",
++                "|---|---|---|---|---|---|"]
++        for r in ranked:
++            n = r["total"]
++            gap = (r["f2p_only_solved"] - r["solved"]) / n if n else 0.0
++            collateral = (f"{r['collateral_attempts']} broke {r['collateral_tests_broken']}"
++                          if r["collateral_attempts"] else "0")
++            out.append(f"| {cell(r['model'])} | {r['f2p_only_solved']}/{n} | {r['solved']}/{n} "
++                       f"| {f'+{gap * 100:.0f}pts' if gap else '0'} | {collateral} "
++                       f"| {r['tampered']} |")
++        out += ["",
++                "**F2P-only** is what a harness that checks only the target tests would have "
++                "reported. **True** also requires every previously-passing test to still pass "
++                "and no test file to have been edited. **Collateral** counts attempts that hit "
++                "the target and broke something else, with how many tests they broke.", ""]
++
++    tasks = sorted({r["task_id"]: r["subject"] for r in records}.items())
++    models = [r["model"] for r in rows]
++    unmeasured = {r["model"] for r in rows if r["unmeasured"]}
++    lookup = {(r["model"], r["task_id"]): r["solved"] for r in records}
++    out += ["#### Per task", "",
++            "| Task | " + " | ".join(cell(fit(label(m), 24)) for m in models) + " |",
++            "|---" * (len(models) + 1) + "|"]
++    for task_id, subject in tasks:
++        marks = []
++        for m in models:
++            ok = lookup.get((m, task_id))
++            # Neither a pass nor a fail: the model was never run on this task,
++            # or nothing it produced could be read.
++            marks.append("–" if m in unmeasured or ok is None else ("✅" if ok else "❌"))
++        out.append(f"| {cell(subject)} | " + " | ".join(marks) + " |")
++    out.append("")
++    return "\n".join(out)
++
++
+ def write_site(rows: list[dict], records: list[dict], repo: str, out: Path, template: Path) -> None:
+     payload = {
+         "repo": repo,
+@@ -401,6 +488,10 @@ def main() -> int:
+     ap.add_argument("--results", type=Path, default=Path("results/results.jsonl"))
+     ap.add_argument("--repo", default="", help="repo name shown on the page")
+     ap.add_argument("--site", type=Path, help="also write a standalone HTML page here")
++    ap.add_argument("--markdown", type=Path, help="also write the report as Markdown here")
++    ap.add_argument("--json", type=Path, dest="json_out",
++                    help="also write the per-model summary rows as JSON here")
++    ap.add_argument("--title", default="Groundhog", help="heading for the Markdown report")
+     ap.add_argument("--template", type=Path, default=Path("site/template.html"))
+     ap.add_argument("--tasks", type=Path, help="validated tasks, for the change-shape breakdown")
+     ap.add_argument("--cutoff", action="append", default=[], metavar="NAME=YYYY-MM-DD",
+@@ -433,6 +524,14 @@ def main() -> int:
+     if cfg.site:
+         write_site(rows, records, cfg.repo or "unknown repo", cfg.site, cfg.template)
+         print(f"wrote {cfg.site}\n")
++    if cfg.markdown:
++        cfg.markdown.parent.mkdir(parents=True, exist_ok=True)
++        cfg.markdown.write_text(markdown(rows, records, cfg.title))
++        print(f"wrote {cfg.markdown}")
++    if cfg.json_out:
++        cfg.json_out.parent.mkdir(parents=True, exist_ok=True)
++        cfg.json_out.write_text(json.dumps(rows, indent=2) + "\n")
++        print(f"wrote {cfg.json_out}")
+     return 0
+ 
+ 

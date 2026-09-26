@@ -1,0 +1,107 @@
+diff --git a/groundhog/validate.py b/groundhog/validate.py
+index d2f5f02..60adc7b 100644
+--- a/groundhog/validate.py
++++ b/groundhog/validate.py
+@@ -11,6 +11,10 @@ tests, and run them twice:
+ 
+     parent + new tests              -> must FAIL   (the task is solvable)
+     parent + new tests + real fix   -> must PASS   (the task is fair)
++
++--stability N repeats the fixed-state run N times and rejects the candidate if
++any test changes its mind between runs. A flaky test scores an agent by coin
++toss, so it is not a task at all.
+ """
+ 
+ from __future__ import annotations
+@@ -206,10 +210,30 @@ def test_outcomes(output: str) -> dict[str, str]:
+     return {name: status for name, status in TEST_LINE.findall(output)}
+ 
+ 
+-def passing(output: str, language: str = "python") -> set[str]:
++def outcomes(output: str, language: str = "python") -> dict[str, str]:
++    """Per-test outcomes, from whichever runner this language uses."""
+     parser = {"go": go_outcomes, "javascript": js_outcomes}.get(language, test_outcomes)
+-    outcomes = parser(output)
+-    return {n for n, st in outcomes.items() if st in ("PASSED", "XFAIL")}
++    return parser(output)
++
++
++def passing(output: str, language: str = "python") -> set[str]:
++    return {n for n, st in outcomes(output, language).items() if st in ("PASSED", "XFAIL")}
++
++
++def unstable(runs: list[dict[str, str]]) -> dict[str, list[str]]:
++    """Tests that did not report the same outcome in every run.
++
++    A test missing from a run counts as a disagreement too: a test that vanishes
++    because collection blew up is no more dependable than one that flips between
++    PASSED and FAILED.
++    """
++    names = sorted({name for run in runs for name in run})
++    flaky: dict[str, list[str]] = {}
++    for name in names:
++        seen = [run.get(name, "ABSENT") for run in runs]
++        if len(set(seen)) > 1:
++            flaky[name] = seen
++    return flaky
+ 
+ 
+ def verbose_form(cmd: str, language: str) -> str:
+@@ -238,6 +262,11 @@ def source_roots(tree: Path) -> list[Path]:
+     return roots
+ 
+ 
++def stability_runs(cfg) -> int:
++    """How many times the fixed state is run. One check is the default."""
++    return max(1, int(getattr(cfg, "stability", 1) or 1))
++
++
+ def manifest(repo: Path, tasks: list[dict], cfg) -> dict:
+     """A stable identity for a task set.
+ 
+@@ -258,6 +287,7 @@ def manifest(repo: Path, tasks: list[dict], cfg) -> dict:
+         "mined_since": getattr(cfg, "since", None),
+         "p2p_scope": getattr(cfg, "p2p_scope", "file"),
+         "deduplicated": not getattr(cfg, "keep_duplicates", False),
++        "stability_runs": stability_runs(cfg),
+         "hash": digest,
+     }
+ 
+@@ -386,6 +416,27 @@ def validate_one(
+             )
+             return verdict
+ 
++        # --stability N: run the fixed state N times in all. A test that flips
++        # between runs scores an agent by coin toss, and nothing downstream can
++        # tell that noise from a real failure, so the candidate is not a task.
++        runs = stability_runs(cfg)
++        verdict["stability_runs"] = runs
++        if runs > 1:
++            seen = [outcomes(after.output, language)]
++            for _ in range(runs - 1):
++                repeat = run(verbose_cmd, tree, cfg.timeout, env_path, pypath)
++                seen.append(outcomes(repeat.output, language))
++            flaky = unstable(seen)
++            if flaky:
++                verdict.update(
++                    status="rejected",
++                    reason=f"flaky: {len(flaky)} test(s) changed outcome across {runs} runs",
++                    detail="\n".join(
++                        f"{name}: {' '.join(states)}" for name, states in flaky.items()
++                    ),
++                )
++                return verdict
++
+         # FAIL_TO_PASS: the tests the fix is *for*.
+         # PASS_TO_PASS: tests already green that must stay green, which is what
+         # stops an agent from "solving" a task by breaking everything around it.
+@@ -444,6 +495,9 @@ def main() -> int:
+                     help="which tests must stay green: the task's own files, or the whole "
+                          "suite. Defaults to file for Python, full for Go.")
+     ap.add_argument("--limit", type=int, default=0, help="stop after N candidates")
++    ap.add_argument("--stability", type=int, default=1, metavar="N",
++                    help="run the fixed state N times and reject the candidate if any "
++                         "test changes outcome between runs (default 1: no repeat)")
+     ap.add_argument("--keep-duplicates", action="store_true",
+                     help="keep tasks defined by the same tests flipping")
+     cfg = ap.parse_args()

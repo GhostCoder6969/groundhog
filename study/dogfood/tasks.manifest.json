@@ -1,0 +1,14 @@
+{
+  "repo": "",
+  "head": "26de26085e97fbba2a7b4031a33d7da5c71c277e",
+  "task_count": 22,
+  "commit_range": [
+    "2026-09-18",
+    "2026-09-25"
+  ],
+  "mined_since": null,
+  "p2p_scope": "file",
+  "deduplicated": true,
+  "stability_runs": 2,
+  "hash": "b87311105c32ab54"
+}

@@ -1,0 +1,90 @@
+diff --git a/groundhog/report.py b/groundhog/report.py
+index 56e3514..a5e8ccf 100644
+--- a/groundhog/report.py
++++ b/groundhog/report.py
+@@ -30,6 +30,20 @@ def summarise(records: list[dict]) -> list[dict]:
+     for model, attempts in by_model.items():
+         solved = sum(1 for a in attempts if a["solved"])
+         silent = sum(1 for a in attempts if not (a.get("tools") or {}).get("calls", 0))
++        # What a FAIL_TO_PASS-only harness would have reported, alongside the
++        # true score. Older results carry no F2P field; there, the two views
++        # coincide and the gap is zero rather than unknown.
++        f2p_only = sum(1 for a in attempts if a.get("fail_to_pass_passed", a["solved"]))
++        # Test editing is its own failure, not collateral damage: counting it
++        # here would blur "deleted the module it was asked to extend" together
++        # with "edited the test until it passed".
++        tampered = sum(1 for a in attempts if a.get("tampered_with_tests"))
++        collateral = [
++            a for a in attempts
++            if a.get("fail_to_pass_passed", a["solved"])
++            and not a.get("tampered_with_tests")
++            and (a.get("broke_pass_to_pass") or 0) > 0
++        ]
+         costs = [a["cost_usd"] for a in attempts if a.get("cost_usd") is not None]
+         times = sorted(a["seconds"] for a in attempts)
+         lo, hi = wilson(solved, len(attempts))
+@@ -47,6 +61,12 @@ def summarise(records: list[dict]) -> list[dict]:
+                 "errors": sum(1 for a in attempts if a.get("error")),
+                 "silent": silent,
+                 "unmeasured": bool(attempts) and silent / len(attempts) > SILENT_LIMIT,
++                "f2p_only_solved": f2p_only,
++                "f2p_only_rate": f2p_only / len(attempts) if attempts else 0.0,
++                "collateral_attempts": len(collateral),
++                "collateral_tests_broken": sum(a.get("broke_pass_to_pass") or 0
++                                               for a in collateral),
++                "tampered": tampered,
+             }
+         )
+     return sorted(rows, key=lambda r: (r["unmeasured"], -r["pass_rate"], r["cost"] or 0))
+@@ -238,6 +258,43 @@ def print_table(rows: list[dict], records: list[dict]) -> None:
+     print()
+ 
+ 
++def overstatement(rows: list[dict]) -> None:
++    """The score a FAIL_TO_PASS-only harness would report, next to the true one.
++
++    The study's central finding (study/collateral.md): an agent can make the
++    target test pass by deleting the module around it. Grading on FAIL_TO_PASS
++    alone counts that as a solve, so the overstatement is not noise -- for
++    qwen2.5-coder:7b it doubled the reported score.
++
++    Printed only where the two views disagree. A model with no gap has nothing
++    to explain, and a section of zeroes reads as a finding of its own.
++    """
++    gapped = [r for r in rows
++              if not r["unmeasured"] and r["f2p_only_solved"] > r["solved"]]
++    if not gapped:
++        return
++
++    width = max(len(r["model"]) for r in gapped) + 2
++    print(f"\n{BOLD}FAIL_TO_PASS-ONLY vs TRUE{RESET}  "
++          f"{DIM}(what target-tests-only grading would report){RESET}")
++    print(f"{BOLD}{'MODEL':<{width}}{'F2P-ONLY':>10}{'TRUE':>8}"
++          f"{'OVERSTATED':>13}   {'WHY':<24}{RESET}")
++    print(DIM + "-" * (width + 58) + RESET)
++    for r in gapped:
++        claimed = f"{r['f2p_only_solved']}/{r['total']}"
++        true = f"{r['solved']}/{r['total']}"
++        gap = f"{(r['f2p_only_rate'] - r['pass_rate']) * 100:+.0f}pts"
++        why = f"{r['collateral_attempts']} broke {r['collateral_tests_broken']}"
++        if r["tampered"]:
++            why += f", {r['tampered']} edited tests"
++        print(f"{r['model']:<{width}}{claimed:>10}{true:>8}{gap:>13}   {why:<24}")
++
++    print(f"\n  {DIM}OVERSTATED is the gap in percentage points between the two "
++          f"scores. WHY counts\n  the attempts behind it: attempts that passed "
++          f"their target test while breaking\n  already-passing tests, and the "
++          f"tests they broke. See study/collateral.md.{RESET}")
++
++
+ def write_site(rows: list[dict], records: list[dict], repo: str, out: Path, template: Path) -> None:
+     payload = {
+         "repo": repo,
+@@ -366,6 +423,7 @@ def main() -> int:
+     records = [json.loads(l) for l in cfg.results.read_text().splitlines() if l.strip()]
+     rows = summarise(records)
+     print_table(rows, records)
++    overstatement(rows)
+ 
+     if cfg.tasks and cfg.tasks.exists():
+         tasks = {}

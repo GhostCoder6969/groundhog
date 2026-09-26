@@ -1,0 +1,27 @@
+name: Feature request
+description: Something Groundhog should do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What were you trying to do, and where did Groundhog stop being useful? A concrete situation beats a general wish.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: Command lines, flags, output. Show what a user would type and see.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [mining and validation, running agents, providers and models, report and site, CI and the Action, a new language, docs, other]
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contribution
+      options:
+        - label: I would be willing to open a pull request for this

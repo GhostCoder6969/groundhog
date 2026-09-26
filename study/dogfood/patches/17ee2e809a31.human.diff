@@ -1,0 +1,71 @@
+commit 17ee2e809a31dad0c1eadbe15b94dad4bc3a4f62
+Author: Abhinav S V <abhinavsv3@gmail.com>
+Date:   Fri Sep 25 22:50:46 2026 -0700
+
+    Say out loud when pyproject.toml could not be parsed
+    
+    On Python 3.10 there is no tomllib, _toml returned {}, and the detector
+    quietly installed bare "." plus pytest -- missing every test extra and
+    dependency group. Tasks then failed validation as "environment problem",
+    which blames the repository for what was our silence. CI on 3.10 passed
+    because nothing exercised a pyproject with extras there.
+    
+    Now: tomllib, then tomli if installed, and if neither exists the plan
+    carries a note naming the cause and the fix. A test mocks the parser
+    away and asserts the note appears.
+    
+    Closes #36
+    
+    Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+diff --git a/groundhog/environment.py b/groundhog/environment.py
+index ee2655b..a06773e 100644
+--- a/groundhog/environment.py
++++ b/groundhog/environment.py
+@@ -80,13 +80,31 @@ def _read(path: Path) -> str:
+         return ""
+ 
+ 
+-def _toml(text: str) -> dict:
++def _toml_parser():
++    """tomllib on 3.11+, tomli if someone installed it, else None."""
+     try:
+         import tomllib
+-    except ModuleNotFoundError:  # pragma: no cover - py3.10
++        return tomllib
++    except ModuleNotFoundError:
++        try:
++            import tomli
++            return tomli
++        except ModuleNotFoundError:
++            return None
++
++
++NO_TOML_NOTE = ("pyproject.toml present but NOT parsed: this Python has no tomllib, so test "
++                "extras and [dependency-groups] were missed. `pip install tomli`, or run "
++                "Groundhog under Python 3.11+. Tasks rejected as \"environment problem\" "
++                "are probably this.")
++
++
++def _toml(text: str) -> dict:
++    parser = _toml_parser()
++    if parser is None:
+         return {}
+     try:
+-        return tomllib.loads(text)
++        return parser.loads(text)
+     except Exception:
+         return {}
+ 
+@@ -268,6 +286,11 @@ def detect(repo: Path) -> Plan:
+     evidence: list[str] = []
+     notes: list[str] = []
+ 
++    if pyproject_text and _toml_parser() is None:
++        # Silently installing bare "." here is the worst outcome: every task
++        # fails at validation with a message that blames the repository.
++        notes.append(NO_TOML_NOTE)
++
+     if has_python_manifest:
+         extras = test_extras(pyproject)
+         target = f".[{','.join(extras)}]" if extras else "."

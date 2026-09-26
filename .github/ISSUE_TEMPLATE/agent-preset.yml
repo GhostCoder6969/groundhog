@@ -1,0 +1,40 @@
+name: Verify or add an agent preset
+description: You have a coding agent installed and ten minutes
+labels: ["agent-adapter", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Presets in `groundhog/agents.py` are marked **verified** only after someone has run them against the demo repo and seen a graded attempt. Most are not yet. This takes about ten minutes:
+
+        ```bash
+        groundhog demo --keep /tmp/gh-demo --limit 1
+        head -1 /tmp/gh-demo/out/tasks.jsonl > /tmp/gh-demo/one.jsonl
+        groundhog run /tmp/gh-demo/demolib --tasks /tmp/gh-demo/one.jsonl --agent <name> --out /tmp/gh-demo/r.jsonl
+        cat /tmp/gh-demo/r.jsonl
+        ```
+  - type: input
+    id: agent
+    attributes:
+      label: Agent
+      placeholder: aider, codex, gemini, cursor, copilot, goose, amp, or a new one
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Agent version
+      placeholder: aider 0.86.1
+  - type: textarea
+    id: result
+    attributes:
+      label: The result line
+      description: 'Paste the JSON record from the run. `"solved": true` with `"agent": "<name>"` is what we are after.'
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: If the preset's command was wrong
+      description: The command that worked, with `{prompt}` / `{prompt_file}` placeholders. A pull request flipping `verified=True` is even better.

@@ -1,0 +1,26 @@
+name: New language
+description: Validate tasks in a language Groundhog does not support yet
+labels: ["language", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A language needs three things, all in one place each: detection in `groundhog/environment.py` (which file marks the project, how to install, the test command), a per-test outcome parser in `groundhog/validate.py`, and how test files map to runner targets. Go, Rust and JavaScript are the three worked examples; Rust is the smallest.
+  - type: input
+    id: language
+    attributes:
+      label: Language and test runner
+      placeholder: Java with JUnit via Maven
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: What the runner prints per test
+      description: Paste a few lines of verbose output showing a pass and a fail. The parser is written from this.
+      render: shell
+  - type: input
+    id: repo
+    attributes:
+      label: A public repository to validate against
+      placeholder: https://github.com/owner/name

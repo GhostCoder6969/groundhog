@@ -1,0 +1,337 @@
+diff --git a/.gitignore b/.gitignore
+index f7c23c7..4a33c2f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -4,5 +4,6 @@ __pycache__/
+ venv/
+ tasks/
+ results/
++.groundhog/
+ .DS_Store
+ *.egg-info/
+diff --git a/README.md b/README.md
+index a72b5bc..0524e60 100644
+--- a/README.md
++++ b/README.md
+@@ -156,6 +156,19 @@ way a benchmark run dies on somebody's laptop.
+ 
+ ## Usage
+ 
++One command, if you just want the number:
++
++```bash
++python -m groundhog bench /path/to/repo --agent claude-code
++```
++
++That mines, validates, races and reports into `.groundhog/<repo>/`, skipping any
++stage whose file is already there — so re-running it races again without
++re-mining, `--resume` finishes an interrupted race, and `--fresh` starts over.
++
++The same thing as four commands, which is what you want as soon as you care
++about the files in between:
++
+ ```bash
+ python -m groundhog mine     /path/to/repo --since "6 months ago"
+ python -m groundhog validate /path/to/repo
+diff --git a/groundhog/__main__.py b/groundhog/__main__.py
+index b18340e..2489a41 100644
+--- a/groundhog/__main__.py
++++ b/groundhog/__main__.py
+@@ -7,6 +7,8 @@ import sys
+ 
+ USAGE = """groundhog -- replay your git history as a regression test for coding agents
+ 
++  groundhog bench    <repo>   all four stages below, in one resumable directory
++
+   groundhog mine     <repo>   find commits that changed source and tests together
+   groundhog validate <repo>   keep only the ones that fail without the fix
+   groundhog run      <repo>   run agents against the validated tasks
+@@ -28,7 +30,9 @@ def main() -> int:
+         return 0
+ 
+     command, sys.argv = sys.argv[1], [f"groundhog {sys.argv[1]}", *sys.argv[2:]]
+-    if command == "mine":
++    if command == "bench":
++        from .bench import main as run_it
++    elif command == "mine":
+         from .mine import main as run_it
+     elif command == "validate":
+         from .validate import main as run_it
+diff --git a/groundhog/bench.py b/groundhog/bench.py
+new file mode 100644
+index 0000000..63f53c2
+--- /dev/null
++++ b/groundhog/bench.py
+@@ -0,0 +1,272 @@
++#!/usr/bin/env python3
++"""One command from a repository to a table: mine, validate, race, report.
++
++    groundhog bench ~/src/httpx --agent claude-code
++    groundhog bench pallets/click --models anthropic:claude-opus-5,openai:gpt-5.2
++
++The four stages already exist as separate commands, and they stay separate --
++each one is worth running on its own, and the files between them are the point.
++What they lacked was a default: four invocations, four `--out` paths that have
++to agree, and a `report` call whose `--tasks` must be the same file `validate`
++wrote. Getting one of those wrong is silent, so this drives all four through one
++directory and one set of flags.
++
++Everything lands in `.groundhog/<repo>/`:
++
++    candidates.jsonl   commits that changed source and tests together
++    tasks.jsonl        the ones that really fail without the fix
++    results.jsonl      one line per attempt
++    report.md          the table, for a pull request
++    index.html         the table, as a page
++    badge.json         a shields.io endpoint
++
++Each stage is skipped when its file is already there, because mining and
++validating a real repository is minutes of work and the thing you usually want
++to redo is the race. `--resume` runs the attempts missing from results.jsonl;
++`--fresh` throws the directory away and starts over.
++"""
++
++from __future__ import annotations
++
++import argparse
++import os
++import shutil
++import sys
++from pathlib import Path
++
++from . import badge, mine, report, run, validate
++from .repos import repo_arg
++
++BOLD, DIM, GREEN, RED, RESET = "\033[1m", "\033[2m", "\033[32m", "\033[31m", "\033[0m"
++
++# Stages in order, with the file each one leaves behind.
++ARTIFACTS = ("candidates.jsonl", "tasks.jsonl", "results.jsonl",
++             "report.md", "index.html", "badge.json")
++DESCRIPTIONS = (
++    "commits that changed source and tests together",
++    "the ones that really fail without the fix",
++    "one line per attempt (groundhog show <task> reads one)",
++    "the table, for a pull request",
++    "the table, as a page",
++    "a shields.io endpoint badge",
++)
++
++
++def say(message: str = "") -> None:
++    """Progress goes to stderr; the report table is the stdout artifact.
++
++    Flush stdout first: the two streams are buffered independently once either
++    is a pipe, so without this the table arrives after the line announcing it.
++    """
++    sys.stdout.flush()
++    print(message, file=sys.stderr)
++
++
++def hush() -> None:
++    """Strip colour from our own output and from the stages we drive.
++
++    The stages hold their escape codes in module constants, so blanking those
++    is what makes --no-color (and piping into a file) true for the whole run
++    rather than only for the lines bench prints itself.
++    """
++    os.environ["NO_COLOR"] = "1"
++    for module in (sys.modules[__name__], mine, validate, run, report, badge):
++        for name in ("BOLD", "DIM", "GREEN", "RED", "YELLOW", "CYAN", "OK", "WARN",
++                     "BAD", "RESET"):
++            if hasattr(module, name):
++                setattr(module, name, "")
++
++
++def stage(name: str, entry, *args: str) -> int:
++    """Run another groundhog command in-process, exactly as if it were typed.
++
++    In-process rather than a subprocess so each stage's progress streams
++    straight through to the terminal, and so a stage that raises does not turn
++    into an unexplained exit code.
++    """
++    saved = sys.argv
++    sys.argv = [f"groundhog {name}", *args]
++    try:
++        return entry() or 0
++    except SystemExit as exc:  # argparse's own exits, e.g. a bad --p2p-scope
++        return int(exc.code or 0)
++    finally:
++        sys.argv = saved
++        sys.stdout.flush()
++
++
++def opt(flag: str, value) -> list[str]:
++    """Forward a flag only when it was actually set.
++
++    Defaults matter here: validate and run auto-detect a test command *only*
++    when --test-cmd still holds its default, so passing bench's own default
++    through would silently disable detection.
++    """
++    if value is None or value is False:
++        return []
++    return [flag] if value is True else [flag, str(value)]
++
++
++def filled(path: Path) -> int:
++    """Lines in a stage's output file; 0 if it is missing or empty."""
++    if not path.exists():
++        return 0
++    return len([l for l in path.read_text().splitlines() if l.strip()])
++
++
++def heading(number: int, title: str, detail: str) -> None:
++    say(f"\n{BOLD}{number}. {title}{RESET}")
++    say(f"{DIM}   {detail}{RESET}")
++
++
++def main() -> int:
++    ap = argparse.ArgumentParser(description=__doc__,
++                                 formatter_class=argparse.RawDescriptionHelpFormatter)
++    ap.add_argument("repo", help="path to a git repository, or a URL such as pallets/click")
++    ap.add_argument("--out", type=Path, metavar="DIR",
++                    help="where the six files go (default: .groundhog/<repo name>)")
++
++    ap.add_argument("--models", help="comma separated, e.g. anthropic:claude-opus-5,ollama:qwen3:8b")
++    ap.add_argument("--agent", help="a known coding agent: claude-code, aider, codex, ... ")
++    ap.add_argument("--agent-cmd", help='any external agent, e.g. "aider --yes --message-file {prompt_file}"')
++
++    ap.add_argument("--since", default="6 months ago", help="only mine commits after this date")
++    ap.add_argument("--commits", type=int, metavar="N", help="how many commits to scan")
++    ap.add_argument("--tasks", type=int, metavar="N", help="race at most N validated tasks")
++    ap.add_argument("--sample", type=int, default=0, metavar="N",
++                    help="a reproducible random subset of N tasks (see --seed)")
++    ap.add_argument("--seed", type=int, default=0, help="seed for --sample")
++
++    ap.add_argument("--test-cmd", help="how to run tests; auto-detected when omitted")
++    ap.add_argument("--venv", type=Path, help="virtualenv to run tests inside (auto-built if omitted)")
++    ap.add_argument("--no-auto-env", action="store_true", help="do not build an environment automatically")
++    ap.add_argument("--env-cmd", help='wrap every test command, e.g. "conda run -n myenv {cmd}"')
++    ap.add_argument("--p2p-scope", choices=("file", "full"),
++                    help="which tests must stay green: the task's own files, or the whole suite")
++    ap.add_argument("--stability", type=int, metavar="N",
++                    help="run the fixed state N times and reject tasks whose tests flip")
++    ap.add_argument("--timeout", type=int, default=300, help="seconds for one test run")
++    ap.add_argument("--agent-timeout", type=int, default=900, help="seconds an external agent may run")
++    ap.add_argument("--max-turns", type=int, help="turns the built-in loop may take")
++    ap.add_argument("--repeats", type=int, help="attempts per task; >1 for any claim about a small effect")
++    ap.add_argument("--jobs", type=int, metavar="N", help="attempts to run concurrently")
++    ap.add_argument("--max-spend", type=float, help="stop cleanly once cumulative cost would exceed this (USD)")
++    ap.add_argument("--no-patches", action="store_true", help="do not save each attempt's diff")
++
++    ap.add_argument("--label", default="agent pass rate", help="the badge's left-hand text")
++    ap.add_argument("--resume", action="store_true",
++                    help="run the attempts missing from an existing results.jsonl")
++    ap.add_argument("--fresh", action="store_true", help="delete the output directory and start over")
++    ap.add_argument("--no-color", action="store_true")
++    cfg = ap.parse_args()
++
++    if cfg.no_color or not sys.stderr.isatty() or os.environ.get("NO_COLOR"):
++        hush()
++
++    if not (cfg.models or cfg.agent or cfg.agent_cmd):
++        # Mining and validating without racing anything is what `mine` and
++        # `validate` are for; bench exists to produce the table.
++        say(f"{RED}bench needs something to race{RESET}")
++        say("  --models anthropic:claude-opus-5      one or more models, comma separated")
++        say("  --agent claude-code                   a coding agent you have installed")
++        say('  --agent-cmd "aider --yes ..."         any other agent, as a command')
++        say(f"\n{DIM}(`groundhog run --list-agents` and `--list-providers` print the "
++            f"names){RESET}")
++        return 2
++
++    # Resolve the repo -- which for a URL means cloning it -- only once we know
++    # there is something to race, so a forgotten --models costs nothing.
++    try:
++        repo = repo_arg(cfg.repo)
++    except argparse.ArgumentTypeError as exc:
++        say(f"{RED}error{RESET}: {exc}")
++        return 2
++
++    out = cfg.out or Path(".groundhog") / repo.name
++    if cfg.fresh and out.exists():
++        say(f"{DIM}removing {out}{RESET}")
++        shutil.rmtree(out)
++    out.mkdir(parents=True, exist_ok=True)
++    candidates, tasks, results = (out / n for n in ARTIFACTS[:3])
++
++    say(f"{BOLD}bench {repo.name}{RESET} -> {out}")
++
++    # validate and run must agree about the environment, or a task validated in
++    # one and raced in another is not the same task.
++    env = [*opt("--test-cmd", cfg.test_cmd), *opt("--venv", cfg.venv),
++           *opt("--no-auto-env", cfg.no_auto_env), *opt("--env-cmd", cfg.env_cmd),
++           *opt("--timeout", cfg.timeout)]
++
++    mined = filled(candidates)
++    if mined:
++        say(f"\n{DIM}{candidates.name} already exists ({mined} candidates) "
++            f"— reusing it; --fresh to re-mine{RESET}")
++    else:
++        heading(1, "Mine", "commits that changed source and tests together")
++        code = stage("mine", mine.main, str(repo), "--out", str(candidates),
++                     *opt("--since", cfg.since), *opt("--limit", cfg.commits))
++        if code:
++            return code
++    if not filled(candidates):
++        say(f"\n{RED}no candidates in that history{RESET} — try a wider --since, or "
++            f"--commits N to scan further back")
++        return 1
++
++    validated = filled(tasks)
++    if validated:
++        say(f"{DIM}{tasks.name} already exists ({validated} tasks) — reusing it; "
++            f"--fresh to re-validate{RESET}")
++    else:
++        heading(2, "Validate", "keep only the ones that fail without the fix")
++        code = stage("validate", validate.main, str(repo),
++                     "--candidates", str(candidates), "--out", str(tasks), *env,
++                     *opt("--p2p-scope", cfg.p2p_scope), *opt("--stability", cfg.stability))
++        if code:
++            return code
++    if not filled(tasks):
++        say(f"\n{RED}no candidate survived validation{RESET} — the tests must fail "
++            f"without the fix and pass with it; the rejection reasons above say which held")
++        return 1
++
++    attempted = filled(results)
++    if attempted and not cfg.resume:
++        say(f"{DIM}{results.name} already exists ({attempted} attempts) — not "
++            f"racing again; --resume to run the attempts still missing, --fresh to "
++            f"start over{RESET}")
++    else:
++        heading(3, "Race", "each agent gets the parent commit and the new tests")
++        code = stage("run", run.main, str(repo), "--tasks", str(tasks),
++                     "--out", str(results), *env,
++                     *opt("--models", cfg.models), *opt("--agent", cfg.agent),
++                     *opt("--agent-cmd", cfg.agent_cmd),
++                     *opt("--limit", cfg.tasks), *opt("--sample", cfg.sample or None),
++                     *opt("--seed", cfg.seed), *opt("--repeats", cfg.repeats),
++                     *opt("--jobs", cfg.jobs), *opt("--max-turns", cfg.max_turns),
++                     *opt("--agent-timeout", cfg.agent_timeout),
++                     *opt("--max-spend", cfg.max_spend),
++                     *opt("--no-patches", cfg.no_patches), *opt("--resume", cfg.resume))
++        if code:
++            return code
++    if not filled(results):
++        say(f"\n{RED}no attempt was recorded{RESET} — nothing to report")
++        return 1
++
++    heading(4, "Report", "the table, a page, and a badge")
++    code = stage("report", report.main, "--results", str(results), "--tasks", str(tasks),
++                 "--repo", repo.name, "--markdown", str(out / "report.md"),
++                 "--site", str(out / "index.html"))
++    if code:
++        return code
++    code = stage("badge", badge.main, "--results", str(results),
++                 "--out", str(out / "badge.json"), "--label", cfg.label)
++    if code:
++        return code
++
++    say(f"\n{BOLD}everything is in {out}{RESET}")
++    for name, what in zip(ARTIFACTS, DESCRIPTIONS):
++        say(f"  {name:<18}{DIM}{what}{RESET}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

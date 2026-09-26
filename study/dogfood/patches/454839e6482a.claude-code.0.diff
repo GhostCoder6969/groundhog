@@ -1,0 +1,286 @@
+diff --git a/README.md b/README.md
+index a72b5bc..e707759 100644
+--- a/README.md
++++ b/README.md
+@@ -164,6 +164,9 @@ python -m groundhog run      /path/to/repo --models anthropic:claude-opus-5,open
+ # or benchmark the agent you actually use
+ python -m groundhog run /path/to/repo \
+     --agent-cmd "aider --yes --message-file {prompt_file}"
++
++# a long run, several attempts at a time
++python -m groundhog run /path/to/repo --repeats 5 --jobs 8
+ python -m groundhog report   --tasks tasks/validated.jsonl --site site/index.html
+ 
+ # did a change to your agent setup help or hurt?
+@@ -228,6 +231,7 @@ Early, but working end to end.
+ - [x] Task deduplication, so related commits are not counted as independent
+ - [x] `--resume` for interrupted runs, and each attempt's diff saved
+ - [x] `--max-spend` ceiling, and a pass-rate breakdown by change shape
++- [x] `--jobs N` to run attempts in parallel, one worktree each
+ - [x] Regression tracking (`groundhog compare`) and a CI workflow
+ - [x] A [pre-registered study](study/REPORT.md) of 174 attempts, reporting the
+       two things that failed as prominently as the things that worked
+diff --git a/docs/research.md b/docs/research.md
+index fd1e4c7..fa62c4e 100644
+--- a/docs/research.md
++++ b/docs/research.md
+@@ -91,6 +91,11 @@ Practical consequences:
+ - **Use `--repeats`.** Repeats reduce per-task noise but do not multiply your
+   sample size; five attempts on 40 tasks is not 200 independent observations.
+   Groundhog collapses repeats by majority vote for exactly this reason.
++- **`--jobs N` buys back the wall clock.** Repeats multiply the length of a run,
++  not its cost per attempt. Each attempt gets its own git worktree and its own
++  temporary tree, so running several at once produces the same records --
++  they simply land in `--out` out of order. Pick N from what your test suite and
++  your provider's rate limit will take, not from your core count.
+ - **Report intervals, not point estimates.** `compare` prints Wilson intervals.
+   A benchmark number without one invites over-reading.
+ 
+diff --git a/groundhog/run.py b/groundhog/run.py
+index 1f7b8da..c8e4d0c 100644
+--- a/groundhog/run.py
++++ b/groundhog/run.py
+@@ -16,7 +16,9 @@ import shutil
+ import subprocess
+ import sys
+ import tempfile
++import threading
+ import time
++from concurrent.futures import ThreadPoolExecutor
+ from dataclasses import asdict, dataclass, field
+ from pathlib import Path
+ 
+@@ -429,7 +431,16 @@ def attempt(repo: Path, task: dict, model: str, cfg: argparse.Namespace, run_ind
+     record.prompt_hash = hashlib.sha256(system.encode()).hexdigest()[:12]
+     started = time.monotonic()
+     solved = False
+-    ws = Workspace(repo, task, cfg.venv, cfg.test_cmd, cfg.timeout)
++    try:
++        ws = Workspace(repo, task, cfg.venv, cfg.test_cmd, cfg.timeout)
++    except Exception as exc:
++        # Setting up the checkout is the one step that used to take the whole
++        # run down with it. With --jobs that is a run's worth of finished work
++        # thrown away for one unlucky worktree, so it is a failed attempt like
++        # any other.
++        record.error = f"setup failed: {type(exc).__name__}: {exc}"[:200]
++        record.seconds = round(time.monotonic() - started, 1)
++        return record
+ 
+     if getattr(cfg, "agent_cmd", None):
+         record.agent = getattr(cfg, "agent", None) or "external"
+@@ -504,6 +515,115 @@ def attempt(repo: Path, task: dict, model: str, cfg: argparse.Namespace, run_ind
+     return record
+ 
+ 
++@dataclass
++class Job:
++    """One attempt this run intends to make."""
++
++    model: str
++    run_index: int
++    index: int   # the task's 1-based position, for the progress line
++    task: dict
++
++
++def plan_attempts(tasks: list[dict], models: list[str], repeats: int,
++                  done: set[tuple[str, str, int]]) -> list[Job]:
++    """Every attempt still to make, in the order a sequential run makes them.
++
++    Ordering is model, then repeat, then task, so --jobs and a plain run
++    produce the same set of records -- the same (task, model, run_index)
++    triples, just finished in a different order.
++    """
++    return [
++        Job(model, run_index, i, task)
++        for model in models
++        for run_index in range(repeats)
++        for i, task in enumerate(tasks, 1)
++        if (task["sha"][:12], model, run_index) not in done
++    ]
++
++
++class Ledger:
++    """One writer, one budget, one tally, however many workers.
++
++    With --jobs the attempts finish in whatever order they like, so every
++    mutation of the results file and the running totals happens under a single
++    lock. Records are still written and flushed one at a time, which is what
++    --resume reads back.
++    """
++
++    def __init__(self, fh, cfg: argparse.Namespace, total_tasks: int, spent: float):
++        self.fh = fh
++        self.cfg = cfg
++        self.total_tasks = total_tasks
++        self.spent = spent
++        self.lock = threading.Lock()
++        self.records: list[Attempt] = []
++        self.skipped_for_budget = 0
++        self.unpriced: set[str] = set()
++        self.solved = 0
++        self.attempted = 0
++        # One worker can claim the line before it starts and finish it after.
++        # Several cannot, so in parallel the whole line is printed at the end.
++        self.streaming = cfg.jobs == 1
++
++    def begin(self) -> None:
++        """Start a fresh per-model tally."""
++        self.solved = self.attempted = 0
++
++    def run_one(self, job: Job) -> None:
++        tag = f" r{job.run_index + 1}" if self.cfg.repeats > 1 else ""
++        label = f"{job.model:<32}{tag} [{job.index}/{self.total_tasks}] {job.task['subject'][:34]}"
++        if self.streaming:
++            print(f"{label:<88}", end="", flush=True, file=sys.stderr)
++
++        with self.lock:
++            over = self.cfg.max_spend is not None and self.spent >= self.cfg.max_spend
++            if over:
++                self.skipped_for_budget += 1
++        if over:
++            self.report(label, "  SKIPPED (budget)")
++            return
++
++        rec = attempt(self.cfg.repo, job.task, job.model, self.cfg, job.run_index)
++
++        with self.lock:
++            self.records.append(rec)
++            self.fh.write(json.dumps(asdict(rec)) + "\n")
++            self.fh.flush()
++            if rec.cost_usd is None:
++                # A ceiling that silently never triggers is worse than none,
++                # so say so rather than assuming zero.
++                self.unpriced.add(rec.model)
++            else:
++                self.spent += rec.cost_usd
++            self.solved += rec.solved
++            self.attempted += 1
++        mark = "PASS" if rec.solved else ("ERROR" if rec.error else "fail")
++        self.report(label, f"  {mark:<5} {rec.seconds:>6.1f}s  {rec.error[:40]}")
++
++    def report(self, label: str, outcome: str) -> None:
++        print(outcome if self.streaming else f"{label:<88}{outcome}", file=sys.stderr)
++
++
++def execute(plan: list[Job], models: list[str], ledger: Ledger, jobs: int) -> None:
++    """Work the plan, a model at a time, up to `jobs` attempts at once.
++
++    Each model's batch is drained before the next starts so its summary line
++    still means what it says. Within a batch the attempts are independent:
++    every one builds its own git worktree and its own temporary tree.
++    """
++    for model in models:
++        batch = [job for job in plan if job.model == model]
++        ledger.begin()
++        if jobs > 1 and len(batch) > 1:
++            with ThreadPoolExecutor(max_workers=min(jobs, len(batch))) as pool:
++                list(pool.map(ledger.run_one, batch))
++        else:
++            for job in batch:
++                ledger.run_one(job)
++        print(f"{model:<32} -> {ledger.solved}/{ledger.attempted}\n", file=sys.stderr)
++
++
+ def main() -> int:
+     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+     ap.add_argument("repo", type=repo_arg, help="path or URL")
+@@ -540,6 +660,9 @@ def main() -> int:
+     ap.add_argument("--limit", type=int, default=0)
+     ap.add_argument("--repeats", type=int, default=1,
+                     help="attempts per task; >1 is required for any claim about a small effect")
++    ap.add_argument("--jobs", type=int, default=1, metavar="N",
++                    help="run N attempts at once. Each gets its own worktree, so the "
++                         "records are the same either way -- they just land out of order")
+     ap.add_argument("--sample", type=int, default=0, metavar="N",
+                     help="a reproducible random subset of N tasks (see --seed)")
+     ap.add_argument("--seed", type=int, default=0, help="seed for --sample; same seed, same tasks")
+@@ -557,6 +680,10 @@ def main() -> int:
+         return 0
+     cfg = ap.parse_args()
+ 
++    if cfg.jobs < 1:
++        print("--jobs must be at least 1", file=sys.stderr)
++        return 2
++
+     if cfg.agent:
+         try:
+             cfg.agent_cmd = preset(cfg.agent).command
+@@ -610,59 +737,37 @@ def main() -> int:
+         skipping = len(planned & done)
+         print(f"resuming: {skipping} already recorded, {total - skipping} to run",
+               file=sys.stderr)
++    if cfg.jobs > 1:
++        print(f"running {cfg.jobs} attempts at a time", file=sys.stderr)
+     print(file=sys.stderr)
+ 
+     cfg.out.parent.mkdir(parents=True, exist_ok=True)
+-    records: list[Attempt] = []
+     spent = spent_so_far(cfg.out) if cfg.resume else 0.0
+-    skipped_for_budget = 0
+-    unpriced: set[str] = set()
+ 
+     if cfg.max_spend is not None and spent:
+         print(f"budget: ${spent:.2f} already spent, ceiling ${cfg.max_spend:.2f}\n",
+               file=sys.stderr)
+-
++    if cfg.max_spend is not None and cfg.jobs > 1:
++        # The ceiling is read as each attempt starts, so the ones already in
++        # flight still finish and still cost money. Say so rather than let the
++        # overshoot look like a miscount.
++        print(f"note: with --jobs {cfg.jobs} the ceiling can be passed by up to "
++              f"{cfg.jobs - 1} in-flight attempts\n", file=sys.stderr)
++
++    plan = plan_attempts(tasks, models, cfg.repeats, done)
+     with cfg.out.open("a" if cfg.resume else "w") as fh:
+-        for model in models:
+-            solved = attempted = 0
+-            for run_index in range(cfg.repeats):
+-                for i, task in enumerate(tasks, 1):
+-                    if (task["sha"][:12], model, run_index) in done:
+-                        continue
+-                    tag = f" r{run_index + 1}" if cfg.repeats > 1 else ""
+-                    label = f"{model:<32}{tag} [{i}/{len(tasks)}] {task['subject'][:34]}"
+-                    print(f"{label:<88}", end="", flush=True, file=sys.stderr)
+-                    if cfg.max_spend is not None and spent >= cfg.max_spend:
+-                        skipped_for_budget += 1
+-                        print("  SKIPPED (budget)", file=sys.stderr)
+-                        continue
+-
+-                    rec = attempt(cfg.repo, task, model, cfg, run_index)
+-                    records.append(rec)
+-                    fh.write(json.dumps(asdict(rec)) + "\n")
+-                    fh.flush()
+-
+-                    if rec.cost_usd is None:
+-                        # A ceiling that silently never triggers is worse than
+-                        # none, so say so rather than assuming zero.
+-                        unpriced.add(rec.model)
+-                    else:
+-                        spent += rec.cost_usd
+-                    solved += rec.solved
+-                    attempted += 1
+-                    mark = "PASS" if rec.solved else ("ERROR" if rec.error else "fail")
+-                    print(f"  {mark:<5} {rec.seconds:>6.1f}s  {rec.error[:40]}", file=sys.stderr)
+-            print(f"{'':<32} -> {solved}/{attempted}\n", file=sys.stderr)
+-
+-    print(f"{len(records)} attempts -> {cfg.out}", file=sys.stderr)
++        ledger = Ledger(fh, cfg, len(tasks), spent)
++        execute(plan, models, ledger, cfg.jobs)
++
++    print(f"{len(ledger.records)} attempts -> {cfg.out}", file=sys.stderr)
+     if cfg.max_spend is not None:
+-        print(f"spent ${spent:.2f} of ${cfg.max_spend:.2f}", file=sys.stderr)
+-    if skipped_for_budget:
+-        print(f"skipped {skipped_for_budget} attempts at the spend ceiling — "
++        print(f"spent ${ledger.spent:.2f} of ${cfg.max_spend:.2f}", file=sys.stderr)
++    if ledger.skipped_for_budget:
++        print(f"skipped {ledger.skipped_for_budget} attempts at the spend ceiling — "
+               f"re-run with --resume and a higher --max-spend to continue",
+               file=sys.stderr)
+-    if unpriced and cfg.max_spend is not None:
+-        print(f"WARNING: no pricing for {', '.join(sorted(unpriced))} — those "
++    if ledger.unpriced and cfg.max_spend is not None:
++        print(f"WARNING: no pricing for {', '.join(sorted(ledger.unpriced))} — those "
+               f"attempts did not count toward the ceiling. Set GROUNDHOG_PRICING.",
+               file=sys.stderr)
+     return 0

@@ -1,0 +1,66 @@
+diff --git a/groundhog/environment.py b/groundhog/environment.py
+index ee2655b..6027e90 100644
+--- a/groundhog/environment.py
++++ b/groundhog/environment.py
+@@ -80,13 +80,34 @@ def _read(path: Path) -> str:
+         return ""
+ 
+ 
+-def _toml(text: str) -> dict:
++def _toml_parser():
++    """The available TOML parser module, or None if there is none.
++
++    tomllib is stdlib from 3.11. On 3.10 the tomli backport is the same API, so
++    either will do; with neither, every pyproject.toml reads as empty, which
++    looks exactly like a repo that declares no test dependencies. Callers must
++    check for None rather than let that pass silently -- see detect().
++    """
+     try:
+         import tomllib
++
++        return tomllib
+     except ModuleNotFoundError:  # pragma: no cover - py3.10
++        pass
++    try:
++        import tomli
++
++        return tomli
++    except ModuleNotFoundError:  # pragma: no cover - py3.10 without tomli
++        return None
++
++
++def _toml(text: str) -> dict:
++    parser = _toml_parser()
++    if parser is None:  # pragma: no cover - py3.10 without tomli
+         return {}
+     try:
+-        return tomllib.loads(text)
++        return parser.loads(text)
+     except Exception:
+         return {}
+ 
+@@ -251,6 +272,7 @@ def detect(repo: Path) -> Plan:
+     looked_for: list[str] = []
+     pyproject_text = _read(repo / "pyproject.toml")
+     pyproject = _toml(pyproject_text)
++    unparsed_pyproject = bool(pyproject_text) and _toml_parser() is None
+     has_python_manifest = bool(pyproject_text) or (repo / "setup.py").is_file()
+     requirement_files = find_requirement_files(repo)
+     looked_for += ["pyproject.toml", "setup.py", *REQUIREMENT_GLOBS]
+@@ -268,6 +290,16 @@ def detect(repo: Path) -> Plan:
+     evidence: list[str] = []
+     notes: list[str] = []
+ 
++    if unparsed_pyproject:
++        # Say it out loud: without a parser the extras and [dependency-groups]
++        # in this file are invisible, so the environment will be missing test
++        # dependencies and the failures will look like the repo's fault.
++        notes.append(
++            "pyproject.toml was NOT parsed: no TOML parser available "
++            "(Python 3.10 without tomli). Extras and [dependency-groups] were "
++            "missed; install tomli or use Python 3.11+."
++        )
++
+     if has_python_manifest:
+         extras = test_extras(pyproject)
+         target = f".[{','.join(extras)}]" if extras else "."

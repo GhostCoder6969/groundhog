@@ -1,0 +1,41 @@
+diff --git a/groundhog/report.py b/groundhog/report.py
+index 1677159..5a8cb62 100644
+--- a/groundhog/report.py
++++ b/groundhog/report.py
+@@ -21,6 +21,17 @@ YELLOW = "\033[33m"
+ SILENT_LIMIT = 0.5
+ 
+ 
++def reads_tool_calls(attempt: dict) -> bool:
++    """Whether a missing tool call says anything about this attempt.
++
++    The silence check reads the tool calls the built-in loop parsed. An
++    external agent runs its own loop behind a shell, so Groundhog records no
++    tool stats for it at all -- and reading that absence as silence reports
++    every external agent as a failed measurement.
++    """
++    return (attempt.get("agent") or "builtin") == "builtin"
++
++
+ def summarise(records: list[dict]) -> list[dict]:
+     by_model: dict[str, list[dict]] = defaultdict(list)
+     for r in records:
+@@ -34,7 +45,8 @@ def summarise(records: list[dict]) -> list[dict]:
+         collateral = [a for a in attempts if a.get("fail_to_pass_passed") and not a["solved"]
+                       and not a.get("tampered_with_tests")]
+         tampered = sum(1 for a in attempts if a.get("tampered_with_tests"))
+-        silent = sum(1 for a in attempts if not (a.get("tools") or {}).get("calls", 0))
++        readable = [a for a in attempts if reads_tool_calls(a)]
++        silent = sum(1 for a in readable if not (a.get("tools") or {}).get("calls", 0))
+         costs = [a["cost_usd"] for a in attempts if a.get("cost_usd") is not None]
+         times = sorted(a["seconds"] for a in attempts)
+         lo, hi = wilson(solved, len(attempts))
+@@ -55,7 +67,7 @@ def summarise(records: list[dict]) -> list[dict]:
+                 "collateral_tests_broken": sum(a.get("broke_pass_to_pass", 0) for a in collateral),
+                 "tampered": tampered,
+                 "silent": silent,
+-                "unmeasured": bool(attempts) and silent / len(attempts) > SILENT_LIMIT,
++                "unmeasured": bool(readable) and silent / len(readable) > SILENT_LIMIT,
+             }
+         )
+     return sorted(rows, key=lambda r: (r["unmeasured"], -r["pass_rate"], r["cost"] or 0))

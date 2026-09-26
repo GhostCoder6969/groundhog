@@ -179,6 +179,32 @@ Runs when your agent config changes, writes the table to the job summary,
 fails on a significant regression. [docs/ci.md](docs/ci.md) covers pinning a
 task set, why the test is paired, and how to keep the cost sane.
 
+## Groundhog on Groundhog
+
+The first real run through `bench` was on this repository's own history: the
+last two weeks of commits, 25 candidates, 22 validated tasks, Claude Code on
+the newest ten. One command, no configuration:
+
+```bash
+groundhog bench . --agent claude-code --limit 10 --since "2 weeks ago"
+```
+
+| Model | Solved | Pass rate | 95% CI | F2P-only | Collateral | Median |
+|---|---:|---:|---|---:|---|---:|
+| claude-code | 10/10 | 100% | 72% – 100% | 10/10 | 0 | 222s |
+
+The tasks were whole features written from their tests: the `bench` command
+itself (eleven minutes), `--jobs` parallelism, `doctor`, the Markdown and
+badge outputs, Rust detection. Every patch is in
+[`study/dogfood/patches/`](study/dogfood/patches/) beside the human's fix, and
+the task set, results and report are alongside. Read the interval, not the
+point: ten tasks cannot distinguish 100% from 75%. And this is the easiest
+possible target, a small stdlib codebase whose tests specify each feature
+completely, so treat it as a demonstration of the pipeline rather than a
+capability claim. Each patch was also re-applied at its parent commit with
+the whole suite run over it, which is the check file-scope PASS_TO_PASS
+cannot make; the result is recorded in [`study/dogfood/`](study/dogfood/).
+
 ## What the study found
 
 [`study/REPORT.md`](study/REPORT.md) is a pre-registered study of 174
