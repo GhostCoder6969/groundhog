@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -121,7 +122,11 @@ def main() -> int:
     ap.add_argument("--fail-on-regression", action="store_true",
                     help="exit 1 if the current run is significantly worse")
     ap.add_argument("--json", type=Path)
+    ap.add_argument("--no-color", action="store_true", help="plain text; also honours NO_COLOR")
     cfg = ap.parse_args()
+    if cfg.no_color or os.environ.get("NO_COLOR") or not sys.stdout.isatty():
+        global BOLD, DIM, GREEN, RED, RESET
+        BOLD = DIM = GREEN = RED = RESET = ""
 
     for path in (cfg.baseline, cfg.current):
         if not path.exists():

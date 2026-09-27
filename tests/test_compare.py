@@ -75,6 +75,30 @@ class TestFlips:
         assert lost == [("Fix t1", "timed out"), ("Fix t2", "target failed, broke 2 other test(s)")]
 
 
+def test_cli_no_color_prints_plain_text(tmp_path):
+    before = [attempt("t1", True), attempt("t2", False)]
+    after = [attempt("t1", True), attempt("t2", True)]
+    pa, pb = tmp_path / "a.jsonl", tmp_path / "b.jsonl"
+    pa.write_text("".join(json.dumps(r) + "\n" for r in before))
+    pb.write_text("".join(json.dumps(r) + "\n" for r in after))
+    root = Path(__file__).resolve().parents[1]
+    run = lambda *args, **kw: subprocess.run(
+        [sys.executable, "-m", "groundhog", "compare", str(pa), str(pb), *args],
+        capture_output=True, text=True, cwd=root, **kw)
+    # stdout is a pipe here, so colour is already off without a TTY.
+    piped = run()
+    assert piped.returncode == 0, piped.stderr
+    assert "\033[" not in piped.stdout and "HOW THEY WORKED" in piped.stdout
+    plain = run("--no-color")
+    assert plain.returncode == 0, plain.stderr
+    assert "\033[" not in plain.stdout and "HOW THEY WORKED" in plain.stdout
+    import os as _os
+    env = {**_os.environ, "NO_COLOR": "1"}
+    via_env = run(env=env)
+    assert via_env.returncode == 0, via_env.stderr
+    assert "\033[" not in via_env.stdout
+
+
 def test_cli_prints_behaviour_and_writes_it_to_json(tmp_path):
     before = [attempt("t1", True, tools=tools(8)), attempt("t2", False, tools=tools(20, errors=10))]
     after = [attempt("t1", False, target=True, broke=1, tools=tools(9)), attempt("t2", True, tools=tools(12))]
